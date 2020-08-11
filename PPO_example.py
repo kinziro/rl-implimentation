@@ -18,7 +18,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common.cmd_util import make_vec_env
 
-import ex_env.kuka
+import exenv.kuka
 
 
 #def make_env(env_name, rank, seed=0):
@@ -38,7 +38,7 @@ import ex_env.kuka
 
 
 # 設定項目
-train = True            # 学習を行うかどうか
+train = False            # 学習を行うかどうか
 validation = True       # 評価を行うかどうか
 
 #env_name = 'Pendulum-v0'        # 学習環境(ペンデュラム)
@@ -48,8 +48,8 @@ env_name = 'KukaEnvExperiment-v0'        # 学習環境(自作環境)
 #env_name = 'MountainCarContinuous-v0'        # 学習環境(マウンテンカー)
 #env_name = 'CartPole-v1'        # 学習環境(カーポール)
 #env_name = 'RoboschoolHumanoid-v1'        # 学習環境(ヒューマノイド)
-num_cpu = 8                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
-total_timesteps = 1*(10**7)     # 学習を行うタイムステップ数
+num_cpu = 1                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
+total_timesteps = 1*(10**2)     # 学習を行うタイムステップ数
 #total_timesteps = 4*(10**5)     # 学習を行うタイムステップ数
 
 #ori_env = gym.make(env_name)
@@ -84,7 +84,7 @@ if train:
     '''
 endtime = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y/%m/%d %H:%M:%S")
 
-wrapping = True
+wrapping = False
 
 # 学習結果の確認
 if validation:
@@ -105,7 +105,7 @@ if validation:
     obs_list = []
 
     sum_r = 0
-    for step in range(2000):
+    for step in range(1000):
         if step % 10 == 0: print("step :", step)
         if done:
             time.sleep(1)
@@ -114,9 +114,11 @@ if validation:
             break
 
         action, _states = model.predict(obs)
-        #action = [0, 0, 0]
+        action = [0, 0, 0]
         obs, rewards, done, info = wrap_env.step(action) if wrapping else env0.step(action)
         #obs, rewards, done, info = env0.step(action)
+        print(step)
+        print('reward: ', rewards)
         obs_list.append(obs.tolist())
         sum_r += rewards
 
