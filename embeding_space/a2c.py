@@ -77,7 +77,7 @@ class A2C(OnPolicyAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
         task_id_dim: int = 2,
-        embeding_dim: int = 3
+        embedding_dim: int = 3
     ):
 
         super(A2C, self).__init__(
@@ -100,7 +100,7 @@ class A2C(OnPolicyAlgorithm):
             seed=seed,
             _init_setup_model=False,
             task_id_dim=task_id_dim,
-            embeding_dim=embeding_dim
+            embedding_dim=embedding_dim
         )
 
         self.normalize_advantage = normalize_advantage
@@ -121,7 +121,7 @@ class A2C(OnPolicyAlgorithm):
         """
         self.policy.train()
         self.inference_net.train()
-        self.embeding_net.train()
+        self.embedding_net.train()
         # Update optimizer learning rate
         self._update_learning_rate(self.policy.optimizer)
 
@@ -145,43 +145,76 @@ class A2C(OnPolicyAlgorithm):
             gammas = rollout_data.gammas
 
             gamma_r_hats = gammas*(rewards + self.alpha_2*inference_log_probs + self.alpha_3*entropys)
-            R = gamma_r_hats.sum()
-            R = th.tensor(R.item())    # 勾配計算の影響をなくすために、定数化
+            gamma_r_hats_sum = gamma_r_hats.sum()
+            entropy_expected = (th.tensor(self.alpha_3) * gammas * entropys).mean()
 
-            log_prob_sum = log_probs.sum()
-            entropy_sum = (th.tensor(self.alpha_3) * gammas * entropys).sum()
-
-            policy_loss = R * (log_prob_sum + entropy_sum)
-
-            # inference loss
-            inference_loss = (th.tensor(self.alpha_2) * gammas * inference_log_probs).sum()
-
-            # embeding loss
-            embeding_entropys = rollout_data.embeding_entropys
-            embeding_loss = (th.tensor(self.alpha_3) * gammas * entropys).sum() + self.alpha_1 * embeding_entropys.mean()
-
-            # Optimization step
+            loss = gamma_r_hats_sum + entropy_expected
             self.policy.optimizer.zero_grad()
+            self.embedding_optimizer.zero_grad()
             self.inference_optimizer.zero_grad()
-            self.embeding_optimizer.zero_grad()
-            policy_loss.backward(retain_graph=True)
-            inference_loss.backward(retain_graph=True)
-            embeding_loss.backward()
+
+            loss.backward()
+
+            #print('policy_grad_1', self.policy.mlp_extractor.shared_net[0].weight.grad.detach().numpy())
+            #print('inference_grad', self.inference_net.fc_std.weight.grad.detach().numpy())
+            #print('embedding_grad', self.embedding_net.fc_std.weight.grad.detach().numpy())
+
+            a = self.policy.mlp_extractor.shared_net[0].weight.grad.detach().numpy()
+            import math
+            if not math.isnan(a[0][0]):
+                print('-- grad is nan')
+                th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+                th.nn.utils.clip_grad_norm_(self.embedding_net.parameters(), self.max_grad_norm)
+                th.nn.utils.clip_grad_norm_(self.inference_net.parameters(), self.max_grad_norm)
+
+                self.policy.optimizer.step()
+                self.embedding_optimizer.step()
+                self.inference_optimizer.step()
+
+            #R = gamma_r_hats.sum()
+            #R = th.tensor(R.item())    # 勾配計算の影響をなくすために、定数化
+
+            #log_prob_sum = log_probs.sum()
+            #entropy_sum = (th.tensor(self.alpha_3) * gammas * entropys).sum()
+
+            #policy_loss = R * (log_prob_sum + entropy_sum)
+
+            ## inference loss
+            #inference_loss = (th.tensor(self.alpha_2) * gammas * inference_log_probs).sum()
+            #print('inference_log_probs', inference_log_probs)
+
+            ## embedding loss
+            #embedding_entropys = rollout_data.embedding_entropys
+            #embedding_loss = (th.tensor(self.alpha_3) * gammas * entropys).sum() + self.alpha_1 * embedding_entropys.mean()
+
+            ## Optimization step
+            #self.policy.optimizer.zero_grad()
+            #policy_loss.backward(retain_graph=True)
+            #th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
+            #self.policy.optimizer.step()
+
+            #self.inference_optimizer.zero_grad()
+            #inference_loss.backward(retain_graph=True)
+            #th.nn.utils.clip_grad_norm_(self.inference_net.parameters(), self.max_grad_norm)
+            #self.inference_optimizer.step()
+
+            #self.embedding_optimizer.zero_grad()
+            #th.nn.utils.clip_grad_norm_(self.embedding_net.parameters(), self.max_grad_norm)
+            #embedding_loss.backward()
+            #self.embedding_optimizer.step()
+
 
             # Clip grad norm
-            th.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
-            self.policy.optimizer.step()
-            self.inference_optimizer.step()
-            self.embeding_optimizer.step()
 
         #explained_var = explained_variance(self.rollout_buffer.returns.flatten(), self.rollout_buffer.values.flatten())
 
         self._n_updates += 1
         logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         #logger.record("train/explained_variance", explained_var)
-        logger.record("train/policy_loss", policy_loss.item())
-        logger.record("train/inference_loss", inference_loss.item())
-        logger.record("train/embeding_loss", embeding_loss.item())
+        logger.record("train/loss", loss.item())
+        #logger.record("train/policy_loss", policy_loss.item())
+        #logger.record("train/inference_loss", inference_loss.item())
+        #logger.record("train/embedding_loss", embedding_loss.item())
         if hasattr(self.policy, "log_std"):
             logger.record("train/std", th.exp(self.policy.log_std).mean().item())
 

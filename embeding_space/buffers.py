@@ -7,7 +7,7 @@ import torch as th
 from gym import spaces
 from stable_baselines3.common.vec_env import VecNormalize
 
-class EmbedingRolloutBufferSamples(NamedTuple):
+class EmbeddingRolloutBufferSamples(NamedTuple):
     observations: th.Tensor
     actions: th.Tensor
     old_values: th.Tensor
@@ -18,18 +18,18 @@ class EmbedingRolloutBufferSamples(NamedTuple):
     entropys: th.Tensor
     inference_log_probs: th.Tensor
     zs: th.Tensor
-    embeding_entropys: th.Tensor
+    embedding_entropys: th.Tensor
     obs_add_zs: th.Tensor
     gammas: th.Tensor
 
 
-class EmbedingRolloutBuffer(BaseBuffer):
+class EmbeddingRolloutBuffer(BaseBuffer):
     def __init__(
         self,
         buffer_size: int,
         observation_space: spaces.Space,
         action_space: spaces.Space,
-        embeding_dim: int,
+        embedding_dim: int,
         device: Union[th.device, str] = "cpu",
         gae_lambda: float = 1,
         gamma: float = 0.99,
@@ -41,7 +41,7 @@ class EmbedingRolloutBuffer(BaseBuffer):
         self.observations, self.actions, self.rewards, self.advantages = None, None, None, None
         self.returns, self.dones, self.values, self.log_probs = None, None, None, None
         self.generator_ready = False
-        self.embeding_dim = embeding_dim
+        self.embedding_dim = embedding_dim
         self.reset()
         
     def reset(self) -> None:
@@ -58,16 +58,16 @@ class EmbedingRolloutBuffer(BaseBuffer):
 
         self.entropys = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.inference_log_probs = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
-        self.zs = th.zeros((self.buffer_size, self.n_envs, self.embeding_dim), dtype=th.float32)
-        self.embeding_entropys = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
-        self.obs_add_zs = th.zeros((self.buffer_size, self.n_envs, self.obs_shape[0]+self.embeding_dim), dtype=th.float32)
+        self.zs = th.zeros((self.buffer_size, self.n_envs, self.embedding_dim), dtype=th.float32)
+        self.embedding_entropys = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
+        self.obs_add_zs = th.zeros((self.buffer_size, self.n_envs, self.obs_shape[0]+self.embedding_dim), dtype=th.float32)
         self.gammas = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
 
         super().reset()
 
     def add(
         self, obs: th.Tensor, action: th.Tensor, reward: th.Tensor, done: th.Tensor, value: th.Tensor, log_prob: th.Tensor, 
-        entropy: th.Tensor, inference_log_prob: th.Tensor, z: th.Tensor, embeding_entropy: th.Tensor, obs_add_z: th.Tensor
+        entropy: th.Tensor, inference_log_prob: th.Tensor, z: th.Tensor, embedding_entropy: th.Tensor, obs_add_z: th.Tensor
     ) -> None:
         """
         :param obs: (np.ndarray) Observation
@@ -88,7 +88,7 @@ class EmbedingRolloutBuffer(BaseBuffer):
         self.entropys[self.pos] = (entropy).clone()
         self.inference_log_probs[self.pos] = (inference_log_prob).clone()
         self.zs[self.pos] = (z).clone()
-        self.embeding_entropys[self.pos] = (embeding_entropy).clone()
+        self.embedding_entropys[self.pos] = (embedding_entropy).clone()
         self.obs_add_zs[self.pos] = (obs_add_z).clone()
         self.gammas[self.pos] = th.tensor(([self.gamma**self.pos]*self.n_envs))
 
@@ -96,13 +96,13 @@ class EmbedingRolloutBuffer(BaseBuffer):
         if self.pos == self.buffer_size:
             self.full = True
 
-    def get(self, batch_size: Optional[int] = None) -> Generator[EmbedingRolloutBufferSamples, None, None]:
+    def get(self, batch_size: Optional[int] = None) -> Generator[EmbeddingRolloutBufferSamples, None, None]:
         assert self.full, ""
         indices = np.random.permutation(self.buffer_size * self.n_envs)
         # Prepare the data
         if not self.generator_ready:
             for tensor in ["observations", "actions", "values", "log_probs", "advantages", "returns", 
-                           "rewards", "entropys", "inference_log_probs", "zs", "embeding_entropys", "obs_add_zs", "gammas"]:
+                           "rewards", "entropys", "inference_log_probs", "zs", "embedding_entropys", "obs_add_zs", "gammas"]:
                 self.__dict__[tensor] = self.swap_and_flatten(self.__dict__[tensor])
             self.generator_ready = True
 
@@ -115,7 +115,7 @@ class EmbedingRolloutBuffer(BaseBuffer):
             yield self._get_samples(indices[start_idx : start_idx + batch_size])
             start_idx += batch_size
 
-    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> EmbedingRolloutBufferSamples:
+    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> EmbeddingRolloutBufferSamples:
         data = (
             self.observations[batch_inds],
             self.actions[batch_inds],
@@ -127,11 +127,11 @@ class EmbedingRolloutBuffer(BaseBuffer):
             self.entropys[batch_inds].flatten(),
             self.inference_log_probs[batch_inds].flatten(),
             self.zs[batch_inds].flatten(),
-            self.embeding_entropys[batch_inds].flatten(),
+            self.embedding_entropys[batch_inds].flatten(),
             self.obs_add_zs[batch_inds].flatten(),
             self.gammas[batch_inds].flatten()
         )
-        return EmbedingRolloutBufferSamples(*data)
+        return EmbeddingRolloutBufferSamples(*data)
 
     def swap_and_flatten(self, arr: th.Tensor) -> th.Tensor:
         """

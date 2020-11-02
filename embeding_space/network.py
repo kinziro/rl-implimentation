@@ -21,25 +21,25 @@ def sum_independent_dims(tensor: th.Tensor) -> th.Tensor:
 
 
 class InferenceNet(nn.Module):
-    def __init__(self, observation_space, action_space, embeding_dim, device='cpu'):
-        super(InferenceNet, self).__init__()
+    def __init__(self, observation_space, action_space, embedding_dim, device='cpu'):
+        super().__init__()
 
         self.device = device
         self.observation_space = observation_space
         self.action_space = action_space
         self.input_dim = self.observation_space + self.action_space
-        self.output_dim = embeding_dim
+        self.output_dim = embedding_dim
 
         self.fc1 = nn.Linear(self.input_dim, 200)
         self.fc2 = nn.Linear(200, 200)
         self.fc_mean = nn.Linear(200, self.output_dim)
-        self.fc_var = nn.Linear(200, self.output_dim)
+        self.fc_std = nn.Linear(200, self.output_dim)
 
     def encoder(self, x):
         x = F.elu(self.fc1(x))
         x = F.elu(self.fc2(x))
         mean = self.fc_mean(x)
-        log_std = self.fc_var(x)
+        log_std = self.fc_std(x)
 
         return mean, log_std
     
@@ -80,13 +80,13 @@ class InferenceNet(nn.Module):
         return z, log_prob
 
 
-class EmbedingNet(nn.Module):
-    def __init__(self, task_id_dim, embeding_dim, device='cpu'):
-        super(EmbedingNet, self).__init__()
+class EmbeddingNet(nn.Module):
+    def __init__(self, task_id_dim, embedding_dim, device='cpu'):
+        super().__init__()
         self.device = device
         self.task_id_dim = task_id_dim
         self.input_dim = self.task_id_dim
-        self.output_dim = embeding_dim
+        self.output_dim = embedding_dim
 
         self.fc1 = nn.Linear(self.input_dim, 200)
         self.fc2 = nn.Linear(200, 200)
@@ -95,6 +95,7 @@ class EmbedingNet(nn.Module):
 
     def encoder(self, x):
         x = F.elu(self.fc1(x))
+        #print('weight', self.fc1.weight.detach().numpy())
         x = F.elu(self.fc2(x))
         mean = self.fc_mean(x)
         log_std = self.fc_std(x)
@@ -127,11 +128,11 @@ class EmbedingNet(nn.Module):
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, observation_space, embeding_dim, action_space, device='cpu'):
+    def __init__(self, observation_space, embedding_dim, action_space, device='cpu'):
         super(PolicyNet, self).__init__()
         self.device = device
         self.observation_space = observation_space
-        self.input_dim = self.observation_space + embeding_dim
+        self.input_dim = self.observation_space + embedding_dim
         self.output_dim = action_space[0]
 
         self.fc1 = nn.Linear(self.input_dim, 200)
@@ -170,15 +171,15 @@ if __name__=="__main__":
     
     observation_space = (3, )
     action_space = (3, )
-    embeding_dim = 2
+    embedding_dim = 2
     task_id_dim = 2
 
-    #policy = PolicyNet(observation_space[0], embeding_dim, action_space[0])
-    inference_net = InferenceNet(observation_space[0], action_space[0], embeding_dim)
-    embeding_net = EmbedingNet(task_id_dim, embeding_dim)
+    #policy = PolicyNet(observation_space[0], embedding_dim, action_space[0])
+    inference_net = InferenceNet(observation_space[0], action_space[0], embedding_dim)
+    embedding_net = EmbedingNet(task_id_dim, embedding_dim)
 
     task_id = [0, 1]
-    z_e = embeding_net(th.tensor(task_id).float())
+    z_e = embedding_net(th.tensor(task_id).float())
 
     obs = th.tensor([[0, 1, 2], [7, 8, 9]]).float()
     action =  th.tensor([[3, 4, 5], [10, 11, 12]]).float()

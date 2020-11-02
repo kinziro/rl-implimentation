@@ -127,7 +127,7 @@ def action_plot(model, add_label):
 train = True            # 学習を行うかどうか
 validation = True       # 評価を行うかどうか
 video = True
-val_num = 1
+val_num = 100
 
 #env_name = 'Pendulum-v0'        # 学習環境(ペンデュラム)
 #env_name = 'KukaBulletEnv-v0'        # 学習環境(Kuka iiwa)
@@ -137,7 +137,7 @@ env_name = 'KukaEnvExperiment-v0'        # 学習環境(自作環境)
 #env_name = 'CartPole-v1'        # 学習環境(カーポール)
 #env_name = 'RoboschoolHumanoid-v1'        # 学習環境(ヒューマノイド)
 num_cpu = 4                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
-total_timesteps = 1*(10**2)     # 学習を行うタイムステップ数
+total_timesteps = 1*(10**6)     # 学習を行うタイムステップ数
 #total_timesteps = 4*(10**5)     # 学習を行うタイムステップ数
 
 #ori_env = gym.make(env_name)
@@ -162,7 +162,7 @@ if train:
     #model = DDPG(MlpPolicy, env, verbose=1, tensorboard_log=logdir)
     #model = PPO(MlpPolicy, env, verbose=1, tensorboard_log=logdir)
     policy_kwargs = dict(net_arch=[200, 100])
-    model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs, task_id_dim=2, embeding_dim=3)
+    model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs, task_id_dim=2, embedding_dim=3)
     #model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs)
 
     #from torchsummary import summary
@@ -223,7 +223,7 @@ if validation:
                 #o = env0.reset()
                 break
 
-            z, _ = model.embeding_net.predict(th.tensor(task_id).float())
+            z, _ = model.embedding_net.predict(th.tensor(task_id).float())
             z_list =  z.detach().numpy().flatten()
             obs_add_z = np.hstack([obs, z.detach().numpy().flatten()])
             action, _states = model.predict(obs_add_z, deterministic=True)

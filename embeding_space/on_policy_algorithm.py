@@ -15,8 +15,8 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback
 from stable_baselines3.common.utils import safe_mean
 from stable_baselines3.common.vec_env import VecEnv
 
-from network import InferenceNet, EmbedingNet
-from buffers import EmbedingRolloutBuffer
+from network import InferenceNet, EmbeddingNet
+from buffers import EmbeddingRolloutBuffer
 
 class OnPolicyAlgorithm(BaseAlgorithm):
     """
@@ -73,7 +73,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
         task_id_dim: int = 2,
-        embeding_dim: int = 3
+        embedding_dim: int = 3
     ):
 
         super(OnPolicyAlgorithm, self).__init__(
@@ -101,7 +101,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self.rollout_buffer = None
 
         self.task_id_dim = task_id_dim
-        self.embeding_dim = embeding_dim
+        self.embedding_dim = embedding_dim
 
         if _init_setup_model:
             self._setup_model()
@@ -114,16 +114,16 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self._setup_lr_schedule()
         self.set_random_seed(self.seed)
 
-        policy_observation_dim = self.observation_space.shape[0] + self.embeding_dim
+        policy_observation_dim = self.observation_space.shape[0] + self.embedding_dim
         policy_observation_high = max(self.observation_space.high)
         observation_high = np.array([policy_observation_high] * policy_observation_dim)
         policy_observation_space = spaces.Box(-observation_high, observation_high)
 
-        self.rollout_buffer = EmbedingRolloutBuffer(
+        self.rollout_buffer = EmbeddingRolloutBuffer(
             self.n_steps,
             self.observation_space,
             self.action_space,
-            self.embeding_dim,
+            self.embedding_dim,
             self.device,
             gamma=self.gamma,
             gae_lambda=self.gae_lambda,
@@ -144,12 +144,12 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self.policy = self.policy.to(self.device)
 
         # 埋め込みネットワークの作成
-        self.embeding_net = EmbedingNet(task_id_dim=self.task_id_dim, embeding_dim=self.embeding_dim, device=self.device).to(self.device)
-        self.embeding_optimizer = th.optim.Adam(self.embeding_net.parameters(), lr=0.001)
+        self.embedding_net = EmbeddingNet(task_id_dim=self.task_id_dim, embedding_dim=self.embedding_dim, device=self.device).to(self.device)
+        self.embedding_optimizer = th.optim.Adam(self.embedding_net.parameters(), lr=0.001)
 
         # 推論ネットワークの作成
         self.inference_net = InferenceNet(observation_space=self.observation_space.shape[0], action_space=self.action_space.shape[0], 
-                                          embeding_dim=self.embeding_dim, device=self.device).to(self.device)
+                                          embedding_dim=self.embedding_dim, device=self.device).to(self.device)
         self.inference_optimizer = th.optim.Adam(self.inference_net.parameters(), lr=0.001)
 
     def collect_rollouts(
@@ -184,14 +184,14 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             # 潜在変数を推定
             task_id_for_num_cpu = [self.task_id for _ in range(self.n_envs)]
             t = th.tensor(task_id_for_num_cpu).float().to(self.device)
-            z, embeding_entropy = self.embeding_net.forward(t)
+            z, embedding_entropy = self.embedding_net.forward(t)
             # 潜在変数を観測値に追加
             obs_add_z_tensor = th.cat([th.as_tensor(self._last_obs), z], dim=1)
             actions, values, log_probs = self.policy.forward(obs_add_z_tensor)
             _, _, entropy = self.policy.evaluate_actions(obs_add_z_tensor, actions)
 
             # 推論NNによる潜在変数を取得
-            inference_z, inference_log_prob = self.inference_net(th.cat([th.tensor(self._last_obs), actions]))
+            inference_z, inference_log_prob = self.inference_net(th.cat([th.tensor(self._last_obs), actions], dim=1))
 
             #actions = actions.cpu().numpy()
             actions = actions.detach().numpy()
@@ -215,7 +215,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
                 # Reshape in case of discrete action
                 actions = actions.reshape(-1, 1)
             rollout_buffer.add(th.tensor(self._last_obs), th.tensor(actions), th.tensor(rewards), th.tensor(self._last_dones), values, log_probs, 
-                               entropy, inference_log_prob, z, embeding_entropy, obs_add_z_tensor)
+                               entropy, inference_log_prob, z, embedding_entropy, obs_add_z_tensor)
             self._last_obs = new_obs
             self._last_dones = dones
 

@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from stable_baselines3.ppo import MlpPolicy
 #from stable_baselines3.common import set_global_seeds
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, A2C
 from stable_baselines3.common.cmd_util import make_vec_env
 
 import exenv.kuka
