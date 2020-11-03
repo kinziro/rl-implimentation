@@ -12,6 +12,7 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback
 from stable_baselines3.common.utils import explained_variance
 
 import copy
+import pickle
 
 class A2C(OnPolicyAlgorithm):
     """
@@ -244,3 +245,15 @@ class A2C(OnPolicyAlgorithm):
             reset_num_timesteps=reset_num_timesteps,
             task_id=task_id
         )
+
+    #def save(self, file_name):
+    #    with open(file_name, 'wb') as f:
+    #        pickle.dump(self, f)
+    
+    #@classmethod
+    #def load(cls, file_name):
+    #    with open(file_name, 'rb') as f:
+    #        model = pickle.load(f)
+    #    
+    #    return model
+

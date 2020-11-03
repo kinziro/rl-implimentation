@@ -25,7 +25,7 @@ import torch as th
 
 import exenv.kuka
 
-def action_plot(model, add_label):
+def action_plot(model, task_id, add_label):
     xs = np.arange(-20, 20, 1)
     ys = np.arange(-20, 20, 1)
     a_s = np.arange(0, 30, 1)
@@ -37,7 +37,11 @@ def action_plot(model, add_label):
     ret = []
     for x in xs:
         for y in ys:
-            action, _ = model.predict([x, y, a])
+            z, _ = model.embedding_net.predict(th.tensor(task_id).float())
+            z_list =  z.detach().numpy().flatten()
+            obs_add_z = np.hstack([x, y, z.detach().numpy().flatten()])
+            action, _states = model.predict(obs_add_z, deterministic=True)
+            #action, _ = model.predict([x, y, a])
             ans = [x, y]
             ans.append(action[0])
             ans.append(action[1])
@@ -105,8 +109,6 @@ def action_plot(model, add_label):
     plt.savefig(os.path.join(savedir, '{}_{}.png'.format('a_action', add_label)))
 
 
-
-
 #def make_env(env_name, rank, seed=0):
 #    """
 #    Utility function for multiprocessed env.
@@ -137,6 +139,7 @@ env_name = 'KukaEnvExperiment-v0'        # 学習環境(自作環境)
 #env_name = 'CartPole-v1'        # 学習環境(カーポール)
 #env_name = 'RoboschoolHumanoid-v1'        # 学習環境(ヒューマノイド)
 num_cpu = 4                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
+device = 'cpu'
 total_timesteps = 1*(10**6)     # 学習を行うタイムステップ数
 #total_timesteps = 4*(10**5)     # 学習を行うタイムステップ数
 
@@ -162,7 +165,8 @@ if train:
     #model = DDPG(MlpPolicy, env, verbose=1, tensorboard_log=logdir)
     #model = PPO(MlpPolicy, env, verbose=1, tensorboard_log=logdir)
     policy_kwargs = dict(net_arch=[200, 100])
-    model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs, task_id_dim=2, embedding_dim=3)
+    model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs, 
+                task_id_dim=len(task_id), embedding_dim=3, device=device)
     #model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs)
 
     #from torchsummary import summary
@@ -173,7 +177,7 @@ if train:
     model.learn(total_timesteps=total_timesteps, task_id=task_id)
     #model.learn(total_timesteps=total_timesteps)
 
-    model.save('{}ppo_model'.format(savedir))
+    model.save('{}embedding_model'.format(savedir))
     '''
     # 学習途中を表示する場合はコメントアウトを外す
     obs = env.reset()
@@ -190,7 +194,7 @@ endtime = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y/%m/%d %H:%M:%S"
 # 学習結果の確認
 if validation:
 
-    model = A2C.load('{}ppo_model'.format(savedir))
+    model = A2C.load('{}embedding_model.zip'.format(savedir), device=device)
     env0 = make_vec_env(env_name, n_envs=1).envs[0]
 
     wrapping_flags = [False] * val_num
@@ -298,8 +302,8 @@ print(endtime)
 
 
 # データ化
-model = A2C.load('{}ppo_model'.format(savedir))
-#action_plot(model, 'learned')
+#model = A2C.load('{}embedding_model.zip'.format(savedir), device=device)
+#action_plot(model, task_id, 'learned')
 
 
 #from mpl_toolkits.mplot3d import Axes3D

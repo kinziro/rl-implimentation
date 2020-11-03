@@ -289,3 +289,30 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         state_dicts = ["policy", "policy.optimizer"]
 
         return state_dicts, []
+
+    def excluded_save_params(self) -> List[str]:
+        """
+        Returns the names of the parameters that should be excluded by default
+        when saving the model.
+
+        :return: ([str]) List of parameters that should be excluded from save
+        """
+        return ["policy", "embedding_net", "inference_net", "embedding_optimizer", "inference_optimizer", 
+                "device", "env", "eval_env", "replay_buffer", "rollout_buffer", "_vec_normalize_env"]
+
+    def get_torch_variables(self) -> Tuple[List[str], List[str]]:
+        """
+        Get the name of the torch variables that will be saved.
+        ``th.save`` and ``th.load`` will be used with the right device
+        instead of the default pickling strategy.
+
+        :return: (Tuple[List[str], List[str]])
+            name of the variables with state dicts to save, name of additional torch tensors,
+        """
+        state_dicts = ["policy", "embedding_net", "inference_net", "embedding_optimizer", "inference_optimizer"]
+
+        return state_dicts, []
+
+
+
+
