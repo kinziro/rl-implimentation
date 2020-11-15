@@ -116,7 +116,7 @@ def plot_history(data, title, xlabel, ylabel, figdir):
     plt.savefig(os.path.join(figdir, f'{title}.png'))
 
 def plot_embedding_space(model, task_id_list, title, figdir):
-    colors = ['b', 'r', 'k', 'g']
+    colors = ['b', 'r', 'k', 'g', 'b', 'r', 'k', 'g']
 
     theta = np.linspace(0, 2*np.pi, 65)
 
@@ -128,7 +128,8 @@ def plot_embedding_space(model, task_id_list, title, figdir):
         x = std_np[0] * np.cos(theta) + mean_np[0]
         y = std_np[1] * np.sin(theta) + mean_np[1]
 
-        plt.plot(x, y, label=f'{task_id}', color=colors[i])
+        task_int = np.argmax(np.array(task_id).reshape(1, -1), axis=1)[0]
+        plt.plot(x, y, label=f'{task_int}', color=colors[i])
         plt.scatter(mean_np[0], mean_np[1], marker='+', color=colors[i])
     plt.xlabel('x')
     plt.ylabel('y')
