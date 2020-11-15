@@ -117,6 +117,7 @@ def plot_history(data, title, xlabel, ylabel, figdir):
 
 def plot_embedding_space(model, task_id_list, title, figdir):
     colors = ['b', 'r', 'k', 'g', 'b', 'r', 'k', 'g']
+    markers = ['+', '+', '+', '+', 'o', 'o', 'o', 'o']
 
     theta = np.linspace(0, 2*np.pi, 65)
 
@@ -130,7 +131,7 @@ def plot_embedding_space(model, task_id_list, title, figdir):
 
         task_int = np.argmax(np.array(task_id).reshape(1, -1), axis=1)[0]
         plt.plot(x, y, label=f'{task_int}', color=colors[i])
-        plt.scatter(mean_np[0], mean_np[1], marker='+', color=colors[i])
+        plt.scatter(mean_np[0], mean_np[1], marker=markers[i], color=colors[i])
     plt.xlabel('x')
     plt.ylabel('y')
     plt.grid()
@@ -158,8 +159,8 @@ base_savedir = '{}/result/{}/'.format(here, env_name)      # 結果の保存デ�
 starttime = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y/%m/%d %H:%M:%S")
 
 # 学習の実行
-#task_int_list = [0, 1, 2, 3, 4, 5, 6, 7]
-task_int_list = [0, 1, 2, 3]
+task_int_list = [0, 1, 2, 3, 4, 5, 6, 7]
+#task_int_list = [0, 1, 2, 3]
 task_id_list = np.eye(8)[task_int_list]
 env_kwargs_list = [dict(task_id=task_id) for task_id in task_id_list]
 env = make_vec_env(PointMassEnv, n_envs=num_cpu, env_kwargs_list=env_kwargs_list)
