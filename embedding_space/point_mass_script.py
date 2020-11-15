@@ -158,7 +158,8 @@ base_savedir = '{}/result/{}/'.format(here, env_name)      # 結果の保存デ�
 starttime = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y/%m/%d %H:%M:%S")
 
 # 学習の実行
-task_int_list = [0, 1, 2, 3, 4, 5, 6, 7]
+#task_int_list = [0, 1, 2, 3, 4, 5, 6, 7]
+task_int_list = [0, 1, 2, 3]
 task_id_list = np.eye(8)[task_int_list]
 env_kwargs_list = [dict(task_id=task_id) for task_id in task_id_list]
 env = make_vec_env(PointMassEnv, n_envs=num_cpu, env_kwargs_list=env_kwargs_list)
@@ -221,7 +222,8 @@ if validation:
     plot_embedding_space(model, task_id_list, 'embedding_space_leaned', figdir=savedir)
 
     for task_id in task_id_list:
-        val_savedir = os.path.join(savedir, f'{task_id[0]}_{task_id[1]}')
+        task_int = np.argmax(np.array(task_id).reshape(1, -1), axis=1)[0]
+        val_savedir = os.path.join(savedir, f'{task_int}')
         os.makedirs(val_savedir, exist_ok=True)
 
         #env0 = make_vec_env(env_name, n_envs=1).envs[0]
