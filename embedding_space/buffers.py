@@ -10,18 +10,22 @@ from stable_baselines3.common.vec_env import VecNormalize
 class EmbeddingRolloutBufferSamples(NamedTuple):
     observations: th.Tensor
     actions: th.Tensor
-    old_values: th.Tensor
-    old_log_probs: th.Tensor
+    cut_entropys_before_z: th.Tensor
+    cut_log_probs_before_z: th.Tensor
     advantages: th.Tensor
     returns: th.Tensor
     rewards: th.Tensor
+    log_probs: th.Tensor
     entropys: th.Tensor
     inference_log_probs: th.Tensor
+    cut_inference_log_probs_before_z: th.Tensor
+    cut_inference_log_probs_before_action: th.Tensor
     zs: th.Tensor
+    embedding_log_probs: th.Tensor
     embedding_entropys: th.Tensor
     obs_add_zs: th.Tensor
     gammas: th.Tensor
-
+    error_zs: th.Tensor
 
 class EmbeddingRolloutBuffer(BaseBuffer):
     def __init__(
@@ -51,23 +55,30 @@ class EmbeddingRolloutBuffer(BaseBuffer):
         self.rewards = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.returns = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.dones = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
-        self.values = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
-        self.log_probs = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
+        self.cut_entropys_before_z = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
+        self.cut_log_probs_before_z = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.advantages = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.generator_ready = False
 
+        self.log_probs = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.entropys = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.inference_log_probs = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
+        self.cut_inference_log_probs_before_z = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
+        self.cut_inference_log_probs_before_action = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.zs = th.zeros((self.buffer_size, self.n_envs, self.embedding_dim), dtype=th.float32)
+        self.embedding_log_probs = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.embedding_entropys = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
         self.obs_add_zs = th.zeros((self.buffer_size, self.n_envs, self.obs_shape[0]+self.embedding_dim), dtype=th.float32)
         self.gammas = th.zeros((self.buffer_size, self.n_envs), dtype=th.float32)
+        self.error_zs = th.zeros((self.buffer_size, self.n_envs, self.embedding_dim), dtype=th.float32)
 
         super().reset()
 
     def add(
-        self, obs: th.Tensor, action: th.Tensor, reward: th.Tensor, done: th.Tensor, value: th.Tensor, log_prob: th.Tensor, 
-        entropy: th.Tensor, inference_log_prob: th.Tensor, z: th.Tensor, embedding_entropy: th.Tensor, obs_add_z: th.Tensor
+        self, obs: th.Tensor, action: th.Tensor, reward: th.Tensor, done: th.Tensor, cut_entropy_before_z: th.Tensor, 
+        cut_log_prob_before_z: th.Tensor, log_prob, entropy: th.Tensor, inference_log_prob: th.Tensor, cut_inference_log_prob_before_z: th.Tensor, 
+        cut_inference_log_prob_before_action: th.Tensor, z: th.Tensor, embedding_log_prob: th.Tensor, embedding_entropy: th.Tensor, 
+        obs_add_z: th.Tensor, error_z: th.Tensor
     ) -> None:
         """
         :param obs: (np.ndarray) Observation
@@ -83,14 +94,19 @@ class EmbeddingRolloutBuffer(BaseBuffer):
         self.actions[self.pos] = (action).clone()
         self.rewards[self.pos] = (reward).clone()
         self.dones[self.pos] = (done).clone()
-        self.values[self.pos] = value.clone().flatten()
+        self.cut_entropys_before_z[self.pos] = cut_entropy_before_z.clone().flatten()
+        self.cut_log_probs_before_z[self.pos] = cut_log_prob_before_z.clone()
         self.log_probs[self.pos] = log_prob.clone()
         self.entropys[self.pos] = (entropy).clone()
         self.inference_log_probs[self.pos] = (inference_log_prob).clone()
+        self.cut_inference_log_probs_before_z[self.pos] = cut_inference_log_prob_before_z.clone()
+        self.cut_inference_log_probs_before_action[self.pos] = cut_inference_log_prob_before_action.clone()
         self.zs[self.pos] = (z).clone()
+        self.embedding_log_probs[self.pos] = (embedding_log_prob).clone()
         self.embedding_entropys[self.pos] = (embedding_entropy).clone()
         self.obs_add_zs[self.pos] = (obs_add_z).clone()
         self.gammas[self.pos] = th.tensor(([self.gamma**self.pos]*self.n_envs))
+        self.error_zs[self.pos] = error_z.clone()
 
         self.pos += 1
         if self.pos == self.buffer_size:
@@ -101,8 +117,10 @@ class EmbeddingRolloutBuffer(BaseBuffer):
         indices = np.random.permutation(self.buffer_size * self.n_envs)
         # Prepare the data
         if not self.generator_ready:
-            for tensor in ["observations", "actions", "values", "log_probs", "advantages", "returns", 
-                           "rewards", "entropys", "inference_log_probs", "zs", "embedding_entropys", "obs_add_zs", "gammas"]:
+            for tensor in ["observations", "actions", "cut_entropys_before_z", "cut_log_probs_before_z", "advantages", "returns", 
+                           "rewards", "log_probs","entropys", "inference_log_probs", "cut_inference_log_probs_before_z", 
+                           "cut_inference_log_probs_before_action", "zs", "embedding_log_probs", "embedding_entropys", "obs_add_zs", 
+                           "gammas", "error_zs"]:
                 self.__dict__[tensor] = self.swap_and_flatten(self.__dict__[tensor])
             self.generator_ready = True
 
@@ -117,21 +135,44 @@ class EmbeddingRolloutBuffer(BaseBuffer):
 
     def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> EmbeddingRolloutBufferSamples:
         data = (
-            self.observations[batch_inds],
-            self.actions[batch_inds],
-            self.values[batch_inds].flatten(),
-            self.log_probs[batch_inds].flatten(),
-            self.advantages[batch_inds].flatten(),
-            self.returns[batch_inds].flatten(),
-            self.rewards[batch_inds].flatten(),
-            self.entropys[batch_inds].flatten(),
-            self.inference_log_probs[batch_inds].flatten(),
-            self.zs[batch_inds].flatten(),
-            self.embedding_entropys[batch_inds].flatten(),
-            self.obs_add_zs[batch_inds].flatten(),
-            self.gammas[batch_inds].flatten()
+            self.observations,
+            self.actions,
+            self.cut_entropys_before_z,
+            self.cut_log_probs_before_z,
+            self.advantages,
+            self.returns,
+            self.rewards,
+            self.log_probs,
+            self.entropys,
+            self.inference_log_probs,
+            self.cut_inference_log_probs_before_z,
+            self.cut_inference_log_probs_before_action,
+            self.zs,
+            self.embedding_log_probs,
+            self.embedding_entropys,
+            self.obs_add_zs,
+            self.gammas,
+            self.error_zs,
         )
         return EmbeddingRolloutBufferSamples(*data)
+
+    #def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> EmbeddingRolloutBufferSamples:
+    #    data = (
+    #        self.observations[batch_inds],
+    #        self.actions[batch_inds],
+    #        self.cut_entropys[batch_inds].flatten(),
+    #        self.cut_log_probs[batch_inds].flatten(),
+    #        self.advantages[batch_inds].flatten(),
+    #        self.returns[batch_inds].flatten(),
+    #        self.rewards[batch_inds].flatten(),
+    #        self.entropys[batch_inds].flatten(),
+    #        self.inference_log_probs[batch_inds].flatten(),
+    #        self.zs[batch_inds].flatten(),
+    #        self.embedding_entropys[batch_inds].flatten(),
+    #        self.obs_add_zs[batch_inds].flatten(),
+    #        self.gammas[batch_inds].flatten()
+    #    )
+    #    return EmbeddingRolloutBufferSamples(*data)
 
     def swap_and_flatten(self, arr: th.Tensor) -> th.Tensor:
         """
@@ -145,9 +186,11 @@ class EmbeddingRolloutBuffer(BaseBuffer):
         shape = arr.shape
         if len(shape) < 3:
             shape = shape + (1,)
-            ret = arr.permute(1, 0).reshape(shape[0] * shape[1], *shape[2:])
+            #ret = arr.permute(1, 0).reshape(shape[0] * shape[1], *shape[2:])
+            ret = arr.permute(1, 0)
         else:
-            ret = arr.permute(1, 0, 2).reshape(shape[0] * shape[1], *shape[2:])
+            #ret = arr.permute(1, 0, 2).reshape(shape[0] * shape[1], *shape[2:])
+            ret = arr.permute(1, 0, 2)
 
         return ret
 

@@ -15,8 +15,10 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback
 from stable_baselines3.common.utils import safe_mean
 from stable_baselines3.common.vec_env import VecEnv
 
-from network import InferenceNet, EmbeddingNet
+from network import InferenceNet, EmbeddingNet, PolicyNet
 from buffers import EmbeddingRolloutBuffer
+
+import copy
 
 class OnPolicyAlgorithm(BaseAlgorithm):
     """
@@ -68,18 +70,21 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         create_eval_env: bool = False,
         monitor_wrapper: bool = True,
         policy_kwargs: Optional[Dict[str, Any]] = None,
+        inference_kwargs: Optional[Dict[str, Any]] = None,
+        embedding_kwargs: Optional[Dict[str, Any]] = None,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
-        task_id_dim: int = 2,
-        embedding_dim: int = 3
+        task_id_list: list = None,
+        embedding_dim: int = 1
     ):
 
         super(OnPolicyAlgorithm, self).__init__(
             policy=policy,
             env=env,
-            policy_base=ActorCriticPolicy,
+            policy_base=PolicyNet,
             learning_rate=learning_rate,
             policy_kwargs=policy_kwargs,
             verbose=verbose,
@@ -100,16 +105,29 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self.max_grad_norm = max_grad_norm
         self.rollout_buffer = None
 
-        self.task_id_dim = task_id_dim
+        if self.env is not None:
+            self.env_task_id_list = [e.env.task_id for e in self.env.envs]
+        self.task_id_list = task_id_list
+        if self.task_id_list is not None:
+            self.task_id_dim = len(self.task_id_list[0])
         self.embedding_dim = embedding_dim
+
+        self.inference_kwargs = inference_kwargs
+        self.embedding_kwargs = embedding_kwargs
+        self.optimizer_kwargs = optimizer_kwargs
 
         if _init_setup_model:
             self._setup_model()
         
-        self.alpha_1 = 1000
-        self.alpha_2 = 1000
-        self.alpha_3 = 1000
+        self.alpha_1 = 1
+        self.alpha_2 = 1
+        self.alpha_3 = 1
 
+        self.n_obs_history = 4
+        if self.env is not None:
+            self.obs_h_manager = ObservationHistoryManager(n_envs=self.env.num_envs, n_history=self.n_obs_history)
+            self.obs_h_manager.add(self.env.reset())        # 他でもenv.reset()がされていないか要確認。環境の観測値の初期値にランダム要素がある場合バグになる可能性あり。
+        
     def _setup_model(self) -> None:
         self._setup_lr_schedule()
         self.set_random_seed(self.seed)
@@ -139,18 +157,21 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             self.lr_schedule,
             use_sde=self.use_sde,
             device=self.device,
-            **self.policy_kwargs  # pytype:disable=not-instantiable
+            **self.policy_kwargs,  # pytype:disable=not-instantiable
         )
         self.policy = self.policy.to(self.device)
 
         # 埋め込みネットワークの作成
-        self.embedding_net = EmbeddingNet(task_id_dim=self.task_id_dim, embedding_dim=self.embedding_dim, device=self.device).to(self.device)
-        self.embedding_optimizer = th.optim.Adam(self.embedding_net.parameters(), lr=0.001)
+        embedding_kwargs = {} if self.embedding_kwargs is None else self.embedding_kwargs
+        self.embedding_net = EmbeddingNet(task_id_dim=self.task_id_dim, embedding_dim=self.embedding_dim, device=self.device, **embedding_kwargs).to(self.device)
+        self.embedding_optimizer = th.optim.RMSprop(self.embedding_net.parameters(), **self.optimizer_kwargs)
 
         # 推論ネットワークの作成
-        self.inference_net = InferenceNet(observation_space=self.observation_space.shape[0], action_space=self.action_space.shape[0], 
-                                          embedding_dim=self.embedding_dim, device=self.device).to(self.device)
-        self.inference_optimizer = th.optim.Adam(self.inference_net.parameters(), lr=0.001)
+        inf_obs_len = self.observation_space.shape[0]*self.n_obs_history
+        inference_kwargs = {} if self.inference_kwargs is None else self.inference_kwargs
+        self.inference_net = InferenceNet(observation_space=inf_obs_len, action_space=self.action_space.shape[0], 
+                                          embedding_dim=self.embedding_dim, device=self.device, **inference_kwargs).to(self.device)
+        self.inference_optimizer = th.optim.RMSprop(self.inference_net.parameters(), **self.optimizer_kwargs)
 
     def collect_rollouts(
         self, env: VecEnv, callback: BaseCallback, rollout_buffer: RolloutBuffer, n_rollout_steps: int
@@ -175,23 +196,51 @@ class OnPolicyAlgorithm(BaseAlgorithm):
 
         callback.on_rollout_start()
 
+        # zは更新ごとに一回だけサンプリング
+        # 潜在変数を推定
+        t = th.tensor(self.env_task_id_list).float().to(self.device)
+        z, embedding_log_prob, embedding_entropy = self.embedding_net.forward(t)
+
         while n_steps < n_rollout_steps:
             if self.use_sde and self.sde_sample_freq > 0 and n_steps % self.sde_sample_freq == 0:
                 # Sample a new noise matrix
                 self.policy.reset_noise(env.num_envs)
 
-            #with th.no_grad():
-            # 潜在変数を推定
-            task_id_for_num_cpu = [self.task_id for _ in range(self.n_envs)]
-            t = th.tensor(task_id_for_num_cpu).float().to(self.device)
-            z, embedding_entropy = self.embedding_net.forward(t)
+            #-- embedding_net更新用 --
             # 潜在変数を観測値に追加
-            obs_add_z_tensor = th.cat([th.as_tensor(self._last_obs), z], dim=1)
-            actions, values, log_probs = self.policy.forward(obs_add_z_tensor)
-            _, _, entropy = self.policy.evaluate_actions(obs_add_z_tensor, actions)
-
+            obs = self._last_obs
+            obs_h = self.obs_h_manager.get()
+            if obs[0, 0] != obs_h[0, 0]:
+                print(obs[0, 0], obs_h[0, 0])
+            #print(f'-- {n_steps} --')
+            #print('obs:', obs)
+            #print('obs_h:', obs_h)
+            #obs_h = self._last_obs
+            obs_add_z_tensor = th.cat([th.as_tensor(obs), z], dim=1)
+            actions, _, log_prob, entropy = self.policy.forward(obs_add_z_tensor)
             # 推論NNによる潜在変数を取得
-            inference_z, inference_log_prob = self.inference_net(th.cat([th.tensor(self._last_obs), actions], dim=1))
+            obs_add_action_tensor = th.cat([th.tensor(obs_h), actions], dim=1)
+            _, inference_log_prob = self.inference_net(obs_add_action_tensor)
+            # embedding_netとinference_netのzの差を計算
+            with th.no_grad():
+                z_mean, _, _ = self.embedding_net.predict(t)
+                inference_z_mean, _ = self.inference_net.predict(obs_add_action_tensor)
+                error_z = th.abs(z_mean - inference_z_mean)
+
+            #-- policy_net更新用 --
+            # 微分の際にembedding_netの影響を受けないために、z以前の連鎖をカット
+            with th.no_grad():
+                cut_obs_add_z_before_z = th.tensor(obs_add_z_tensor.detach().numpy())
+            cut_action_before_z, _, cut_log_probs_before_z, cut_entropys_before_z = self.policy.forward(cut_obs_add_z_before_z, reproduce=True)
+            # 推論NNによる潜在変数を取得
+            cut_obs_add_action_before_z = th.cat([th.tensor(obs_h), cut_action_before_z], dim=1)
+            _, cut_inference_log_prob_before_z = self.inference_net(cut_obs_add_action_before_z, reproduce=True)
+
+            #-- inference_net更新用 --
+            # 微分の際にembedding_net, policy_netの影響を受けないために、action以前の連鎖をカット
+            with th.no_grad():
+                cut_obs_add_action_before_action = th.tensor(cut_obs_add_action_before_z.detach().numpy())
+            _, cut_inference_log_prob_before_action = self.inference_net(cut_obs_add_action_before_action, reproduce=True)
 
             #actions = actions.cpu().numpy()
             actions = actions.detach().numpy()
@@ -205,6 +254,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             new_obs, rewards, dones, infos = env.step(clipped_actions)
 
             if callback.on_step() is False:
+                print('callback on step')
                 return False
 
             self._update_info_buffer(infos)
@@ -214,10 +264,13 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             if isinstance(self.action_space, gym.spaces.Discrete):
                 # Reshape in case of discrete action
                 actions = actions.reshape(-1, 1)
-            rollout_buffer.add(th.tensor(self._last_obs), th.tensor(actions), th.tensor(rewards), th.tensor(self._last_dones), values, log_probs, 
-                               entropy, inference_log_prob, z, embedding_entropy, obs_add_z_tensor)
+            rollout_buffer.add(th.tensor(self._last_obs), th.tensor(actions), th.tensor(rewards), th.tensor(self._last_dones), 
+                               cut_entropys_before_z, cut_log_probs_before_z, log_prob, entropy, inference_log_prob,  cut_inference_log_prob_before_z,
+                               cut_inference_log_prob_before_action, z, embedding_log_prob, embedding_entropy, obs_add_z_tensor, error_z)
             self._last_obs = new_obs
             self._last_dones = dones
+            self.obs_h_manager.reset(dones)
+            self.obs_h_manager.add(new_obs)
 
         #rollout_buffer.compute_returns_and_advantage(values, dones=dones)
 
@@ -242,10 +295,8 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         n_eval_episodes: int = 5,
         tb_log_name: str = "OnPolicyAlgorithm",
         eval_log_path: Optional[str] = None,
-        reset_num_timesteps: bool = True,
-        task_id: list = [0, 0]
+        reset_num_timesteps: bool = True
     ) -> "OnPolicyAlgorithm":
-        self.task_id = task_id
         iteration = 0
 
         total_timesteps, callback = self._setup_learn(
@@ -282,14 +333,6 @@ class OnPolicyAlgorithm(BaseAlgorithm):
 
         return self
 
-    def get_torch_variables(self) -> Tuple[List[str], List[str]]:
-        """
-        cf base class
-        """
-        state_dicts = ["policy", "policy.optimizer"]
-
-        return state_dicts, []
-
     def excluded_save_params(self) -> List[str]:
         """
         Returns the names of the parameters that should be excluded by default
@@ -314,5 +357,73 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         return state_dicts, []
 
 
+class ObservationHistory:
+    def __init__(self, n_history: int):
+        self.n_history = n_history
+        self.obs_h = [[] for _ in range(n_history)]
+        self.index = -1
+        self.reset_flag = True
+    
+    def add(self, obs: list):
+        self.index += 1
+        self.index %= self.n_history
+
+        if self.reset_flag:
+            self.obs_h = [copy.deepcopy(obs) for _ in range(self.n_history)]
+            self.reset_flag = False
+        else:
+            self.obs_h[self.index] = copy.deepcopy(obs)
+
+    def get(self) -> list:
+        ret_obs_h = []
+        [ret_obs_h.extend(self.obs_h[self.index-i]) for i in range(self.n_history)]
+        return ret_obs_h
+    
+    def reset(self):
+        self.obs_h = [[] for _ in range(self.n_history)]
+        self.reset_flag = True
 
 
+class ObservationHistoryManager:
+    def __init__(self, n_envs, n_history):
+        self.n_envs = n_envs
+        self.envs = [ObservationHistory(n_history) for _ in range(n_envs)]
+    
+    def add(self, obs_np: np.ndarray):
+        for i in range(self.n_envs):
+            self.envs[i].add(obs_np[i, :].tolist())
+    
+    def get(self) -> np.ndarray:
+        ret = [self.envs[i].get() for i in range(self.n_envs)]
+        ret_np = np.array(ret, dtype=np.float32)
+
+        return ret_np
+    
+    def reset(self, dones: np.ndarray):
+        for flag, env in zip(dones, self.envs):
+            if flag:
+                env.reset()
+
+
+if __name__=="__main__":
+    obs_h_m = ObservationHistoryManager(3, 4)
+    print(obs_h_m.get())
+    a = np.array([[1, 1, 1], [2, 1, 1], [3, 1, 1]])
+    obs_h_m.add(a)
+    print(obs_h_m.get())
+    a = np.array([[1, 2, 2], [2, 2, 2], [3, 2, 2]])
+    obs_h_m.add(a)
+    print(obs_h_m.get())
+    a = np.array([[1, 3, 3], [2, 3, 3], [3, 3, 3]])
+    obs_h_m.add(a)
+    print(obs_h_m.get())
+    a = np.array([[1, 4, 4], [2, 4, 4], [3, 4, 4]])
+    obs_h_m.add(a)
+    print(obs_h_m.get())
+    a = np.array([[1, 5, 5], [2, 5, 5], [3, 5, 5]])
+    obs_h_m.add(a)
+    print(obs_h_m.get())
+    obs_h_m.reset(np.array([True, False, False]))
+    a = np.array([[1, 6, 6], [2, 6, 6], [3, 6, 6]])
+    obs_h_m.add(a)
+    print(obs_h_m.get())

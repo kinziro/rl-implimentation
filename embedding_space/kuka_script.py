@@ -37,7 +37,7 @@ def action_plot(model, task_id, add_label):
     ret = []
     for x in xs:
         for y in ys:
-            z, _ = model.embedding_net.predict(th.tensor(task_id).float())
+            z, _, _ = model.embedding_net.predict(th.tensor(task_id).float())
             z_list =  z.detach().numpy().flatten()
             obs_add_z = np.hstack([x, y, z.detach().numpy().flatten()])
             action, _states = model.predict(obs_add_z, deterministic=True)
@@ -140,7 +140,7 @@ env_name = 'KukaEnvExperiment-v0'        # 学習環境(自作環境)
 #env_name = 'RoboschoolHumanoid-v1'        # 学習環境(ヒューマノイド)
 num_cpu = 4                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
 device = 'cpu'
-total_timesteps = 1*(10**6)     # 学習を行うタイムステップ数
+total_timesteps = 1*(10**4)     # 学習を行うタイムステップ数
 #total_timesteps = 4*(10**5)     # 学習を行うタイムステップ数
 
 #ori_env = gym.make(env_name)
@@ -227,7 +227,7 @@ if validation:
                 #o = env0.reset()
                 break
 
-            z, _ = model.embedding_net.predict(th.tensor(task_id).float())
+            z, _, _ = model.embedding_net.predict(th.tensor(task_id).float())
             z_list =  z.detach().numpy().flatten()
             obs_add_z = np.hstack([obs, z.detach().numpy().flatten()])
             action, _states = model.predict(obs_add_z, deterministic=True)
