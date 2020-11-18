@@ -1,0 +1,23 @@
+env:
+  env_kwargs: {"goal_range": 0.5, "reward_range": 1, "terminal_timestep": 14}
+  task_int_list: [0, 1, 2, 3]
+  max_task_int: 7
+algorithm:
+  policy_kwargs: {"net_arch": [50, 50]}
+  inference_kwargs: {"net_arch": [50, 50]}
+  embedding_kwargs: {"net_arch": [50, 50]}
+  optimizer_kwargs: {"lr": 0.0007, "alpha": 0.99, "eps": 0.00001, "weight_decay": 0.001}
+  embedding_dim: 2
+learn:
+  flag: True
+  n_cpu: 16
+  n_steps: 30   # 何ステップ分でNNの学習を行うか
+  total_timesteps: 1000000    # 学習タイムステップ
+  device: "cpu"
+  verbose: 1
+validation:
+  flag: True
+  video: False
+  n_val: 1
+  timestep: 50
+  device: "cpu"
