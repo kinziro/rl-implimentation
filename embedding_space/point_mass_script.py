@@ -147,7 +147,7 @@ val_num = 1
 
 env_name = 'PointMass-v0'        # 学習環境(自作環境)
 #num_cpu = 2                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
-num_cpu = 32                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
+num_cpu = 16                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
 device = 'cpu'
 total_timesteps = 2*(10**6)     # 学習を行うタイムステップ数
 #total_timesteps = 4*(10**5)     # 学習を行うタイムステップ数
@@ -159,8 +159,9 @@ base_savedir = '{}/result/{}/'.format(here, env_name)      # 結果の保存デ�
 starttime = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y/%m/%d %H:%M:%S")
 
 # 学習の実行
-task_int_list = [0, 1, 2, 3, 4, 5, 6, 7]
-#task_int_list = [0, 1, 2, 3]
+#task_int_list = [0, 1, 2, 3, 4, 5, 6, 7]
+task_int_list = [0, 1, 2, 3]
+#task_int_list = [0, 1]
 task_id_list = np.eye(8)[task_int_list]
 env_kwargs_list = [dict(task_id=task_id) for task_id in task_id_list]
 env = make_vec_env(PointMassEnv, n_envs=num_cpu, env_kwargs_list=env_kwargs_list)
@@ -178,7 +179,7 @@ if train:
     optimizer_kwargs = dict(lr=schedule_fn(1), alpha=0.99, eps=1e-5, weight_decay=0.001)
     model = A2C(PolicyNet, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs, 
                 inference_kwargs=inference_kwargs, embedding_kwargs=embedding_kwargs, 
-                optimizer_kwargs=optimizer_kwargs, task_id_list=task_id_list, embedding_dim=2, device=device, n_steps=5)
+                optimizer_kwargs=optimizer_kwargs, task_id_list=task_id_list, embedding_dim=2, device=device, n_steps=30)
     #model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs, 
     #            device=device, n_steps=10)
 

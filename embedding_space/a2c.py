@@ -168,7 +168,9 @@ class A2C(OnPolicyAlgorithm):
         self._update_learning_rate(self.policy.optimizer)
 
         # This will only loop once (get all data in one go)
-        for rollout_data in self.rollout_buffer.get(batch_size=None):
+        #a = self.rollout_buffer.get_each_cycle()
+        #for rollout_data in self.rollout_buffer.get(batch_size=None):
+        for rollout_data in self.rollout_buffer.get_each_cycle():
 
             actions = rollout_data.actions
             if isinstance(self.action_space, spaces.Discrete):
@@ -187,6 +189,7 @@ class A2C(OnPolicyAlgorithm):
             cut_inference_log_probs_before_action = rollout_data.cut_inference_log_probs_before_action
             embedding_entropys = rollout_data.embedding_entropys
             gammas = rollout_data.gammas
+            data_lens = rollout_data.data_lens
 
             with th.no_grad():
                 gamma_r_hats = gammas*(rewards + self.alpha_2*inference_log_probs + self.alpha_3*entropys)
@@ -197,11 +200,14 @@ class A2C(OnPolicyAlgorithm):
 
             # embedding loss
             embedding_log_probs = rollout_data.embedding_log_probs
+            embedding_log_probs_mean = embedding_log_probs.sum(dim=1) / data_lens
+            embedding_entropys_mean = embedding_entropys.sum(dim=1) / data_lens
+
             embedding_entropys = rollout_data.embedding_entropys
-            embedding_expected_term_1_each_cpu = R * (log_probs.sum(dim=1) + embedding_log_probs.mean(dim=1))
+            embedding_expected_term_1_each_cpu = R * (log_probs.sum(dim=1) + embedding_log_probs_mean)
             embedding_expected_term_2_each_cpu = (gammas * self.alpha_2 * inference_log_probs + gammas * self.alpha_3 * entropys).sum(dim=1)
             embedding_expected_term = (embedding_expected_term_1_each_cpu + embedding_expected_term_2_each_cpu).mean()
-            embedding_loss = -1 * (embedding_expected_term + self.alpha_1 * embedding_entropys.mean())
+            embedding_loss = -1 * (embedding_expected_term + self.alpha_1 * embedding_entropys_mean.mean())
 
             # policy loss
             log_prob_sum = R * cut_log_probs_before_z.sum(dim=1)

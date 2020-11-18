@@ -119,9 +119,9 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         if _init_setup_model:
             self._setup_model()
         
-        self.alpha_1 = 1
-        self.alpha_2 = 1
-        self.alpha_3 = 1
+        self.alpha_1 = 0.5
+        self.alpha_2 = 0.5
+        self.alpha_3 = 0.5
 
         self.n_obs_history = 4
         if self.env is not None:
@@ -195,6 +195,11 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             self.policy.reset_noise(env.num_envs)
 
         callback.on_rollout_start()
+
+        self._last_obs = self.env.reset()
+        self._last_dones = np.zeros((self.env.num_envs,), dtype=np.bool)
+        self.obs_h_manager = ObservationHistoryManager(n_envs=self.env.num_envs, n_history=self.n_obs_history)
+        self.obs_h_manager.add(self._last_obs)
 
         # zは更新ごとに一回だけサンプリング
         # 潜在変数を推定

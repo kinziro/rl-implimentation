@@ -27,6 +27,28 @@ class EmbeddingRolloutBufferSamples(NamedTuple):
     gammas: th.Tensor
     error_zs: th.Tensor
 
+class EmbeddingRolloutBufferSamples2(NamedTuple):
+    observations: th.Tensor
+    actions: th.Tensor
+    cut_entropys_before_z: th.Tensor
+    cut_log_probs_before_z: th.Tensor
+    advantages: th.Tensor
+    returns: th.Tensor
+    rewards: th.Tensor
+    log_probs: th.Tensor
+    entropys: th.Tensor
+    inference_log_probs: th.Tensor
+    cut_inference_log_probs_before_z: th.Tensor
+    cut_inference_log_probs_before_action: th.Tensor
+    zs: th.Tensor
+    embedding_log_probs: th.Tensor
+    embedding_entropys: th.Tensor
+    obs_add_zs: th.Tensor
+    gammas: th.Tensor
+    error_zs: th.Tensor
+    data_lens: th.Tensor
+
+
 class EmbeddingRolloutBuffer(BaseBuffer):
     def __init__(
         self,
@@ -46,6 +68,10 @@ class EmbeddingRolloutBuffer(BaseBuffer):
         self.returns, self.dones, self.values, self.log_probs = None, None, None, None
         self.generator_ready = False
         self.embedding_dim = embedding_dim
+        self.variables = ["observations", "actions", "cut_entropys_before_z", "cut_log_probs_before_z", "advantages", "returns", 
+                          "rewards", "log_probs","entropys", "inference_log_probs", "cut_inference_log_probs_before_z", 
+                          "cut_inference_log_probs_before_action", "zs", "embedding_log_probs", "embedding_entropys", "obs_add_zs", 
+                          "gammas", "error_zs"]
         self.reset()
         
     def reset(self) -> None:
@@ -117,16 +143,16 @@ class EmbeddingRolloutBuffer(BaseBuffer):
         indices = np.random.permutation(self.buffer_size * self.n_envs)
         # Prepare the data
         if not self.generator_ready:
-            for tensor in ["observations", "actions", "cut_entropys_before_z", "cut_log_probs_before_z", "advantages", "returns", 
-                           "rewards", "log_probs","entropys", "inference_log_probs", "cut_inference_log_probs_before_z", 
-                           "cut_inference_log_probs_before_action", "zs", "embedding_log_probs", "embedding_entropys", "obs_add_zs", 
-                           "gammas", "error_zs"]:
+            for tensor in self.variables:
                 self.__dict__[tensor] = self.swap_and_flatten(self.__dict__[tensor])
             self.generator_ready = True
 
         # Return everything, don't create minibatches
         if batch_size is None:
             batch_size = self.buffer_size * self.n_envs
+        
+        self.observations.shape
+        self.rewards.shape
 
         start_idx = 0
         while start_idx < self.buffer_size * self.n_envs:
@@ -156,24 +182,6 @@ class EmbeddingRolloutBuffer(BaseBuffer):
         )
         return EmbeddingRolloutBufferSamples(*data)
 
-    #def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> EmbeddingRolloutBufferSamples:
-    #    data = (
-    #        self.observations[batch_inds],
-    #        self.actions[batch_inds],
-    #        self.cut_entropys[batch_inds].flatten(),
-    #        self.cut_log_probs[batch_inds].flatten(),
-    #        self.advantages[batch_inds].flatten(),
-    #        self.returns[batch_inds].flatten(),
-    #        self.rewards[batch_inds].flatten(),
-    #        self.entropys[batch_inds].flatten(),
-    #        self.inference_log_probs[batch_inds].flatten(),
-    #        self.zs[batch_inds].flatten(),
-    #        self.embedding_entropys[batch_inds].flatten(),
-    #        self.obs_add_zs[batch_inds].flatten(),
-    #        self.gammas[batch_inds].flatten()
-    #    )
-    #    return EmbeddingRolloutBufferSamples(*data)
-
     def swap_and_flatten(self, arr: th.Tensor) -> th.Tensor:
         """
         Swap and then flatten axes 0 (buffer_size) and 1 (n_envs)
@@ -194,6 +202,58 @@ class EmbeddingRolloutBuffer(BaseBuffer):
 
         return ret
 
+    def get_each_cycle(self):
+        self.dones = self.swap_and_flatten(self.dones)
+        indices = np.random.permutation(self.buffer_size * self.n_envs)
+        # Prepare the data
+        if not self.generator_ready:
+            for tensor in self.variables:
+                self.__dict__[tensor] = self.swap_and_flatten(self.__dict__[tensor])
+            self.generator_ready = True
+        
+        # 各環境の探索サイクルの区切りを計算
+        separations = []
+        dones_np = self.dones.detach().numpy()
+        indexes = np.array(list(range(self.buffer_size+1))).reshape(1, -1)
+        for e in range(self.n_envs):
+            dones_e = dones_np[e, :].reshape(1, -1)
+            dones_e = np.hstack([np.array([[1]]), dones_e])
+            separation_e = list(indexes[np.where(dones_e==1)])
+            separations.append(separation_e)
+
+        data_list = []
+        data_lens = []
+        for var_i, var in enumerate(self.variables):
+            tar_var =  self.__dict__[var]
+            if len(tar_var.shape) == 2:
+                v = th.zeros((self.buffer_size*self.n_envs, self.buffer_size), dtype=th.float32)
+            else:
+                v = th.zeros((self.buffer_size*self.n_envs, self.buffer_size, tar_var.shape[2]), dtype=th.float32)
+            
+            v_idx = 0
+            for e in range(self.n_envs):
+                for i in range(len(separations[e])-1):
+                    str_idx = separations[e][i]
+                    end_idx = separations[e][i+1]
+                    data_len = end_idx - str_idx
+                    v[v_idx, 0:data_len] = tar_var[e, str_idx:end_idx]
+
+                    if var_i == 0:
+                        data_lens.append(data_len)
+                    
+                    v_idx += 1
+            
+            if var == "gammas":
+                v[0:v_idx] = v[0:v_idx] / v[0:v_idx, 0].reshape(-1, 1)
+
+            data_list.append(v[0:v_idx])
+        
+        data_list.append(th.tensor(data_lens))
 
 
+        yield EmbeddingRolloutBufferSamples2(*data_list)
+
+                   
+
+                
 
