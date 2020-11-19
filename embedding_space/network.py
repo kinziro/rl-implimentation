@@ -127,11 +127,12 @@ class BaseDistributionNet(nn.Module):
 
 
 class InferenceNet(BaseDistributionNet):
-    def __init__(self, observation_space, action_space, embedding_dim, net_arch=[100, 100], device='cpu'):
+    def __init__(self, observation_space, action_space, embedding_dim, n_obs_history=1, net_arch=[100, 100], device='cpu'):
 
         self.observation_space = observation_space
         self.action_space = action_space
-        input_dim = self.observation_space + self.action_space
+        self.n_obs_history = n_obs_history
+        input_dim = (self.observation_space * self.n_obs_history) + self.action_space
         output_dim = embedding_dim
 
         super().__init__(input_dim=input_dim, output_dim=output_dim, net_arch=net_arch, device=device)

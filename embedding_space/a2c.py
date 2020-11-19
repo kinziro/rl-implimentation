@@ -83,7 +83,8 @@ class A2C(OnPolicyAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
         task_id_list: list = None,
-        embedding_dim: int = 3
+        embedding_dim: int = 3,
+        loss_alphas: list = [1, 1, 1]
     ):
 
         super(A2C, self).__init__(
@@ -109,7 +110,8 @@ class A2C(OnPolicyAlgorithm):
             seed=seed,
             _init_setup_model=False,
             task_id_list=task_id_list,
-            embedding_dim=embedding_dim
+            embedding_dim=embedding_dim,
+            loss_alphas=loss_alphas
         )
 
         self.normalize_advantage = normalize_advantage

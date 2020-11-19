@@ -168,7 +168,8 @@ if config["learn"]["flag"]:
     n_cpu = config["learn"]["n_cpu"]                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
     # 環境の構築
     env_kwargs = config["env"]["env_kwargs"]
-    env_kwargs_list = [dict(task_id=task_id) for task_id in task_id_list]
+    env_init_random = config["learn"]["env_init_random"]
+    env_kwargs_list = [dict(task_id=task_id, init_random=env_init_random) for task_id in task_id_list]
     [env_k.update(env_kwargs) for env_k in env_kwargs_list]
     env = make_vec_env(PointMassEnv, n_envs=n_cpu, env_kwargs_list=env_kwargs_list)
     env.reset()
@@ -179,6 +180,7 @@ if config["learn"]["flag"]:
     inference_kwargs = config["algorithm"]["inference_kwargs"]
     embedding_kwargs = config["algorithm"]["embedding_kwargs"]
     optimizer_kwargs = config["algorithm"]["optimizer_kwargs"]
+    loss_alphas = config["algorithm"]["loss_alphas"]
 
     # 学習条件の定義
     total_timesteps = config["learn"]["total_timesteps"]     # 学習を行うタイムステップ数
@@ -189,7 +191,8 @@ if config["learn"]["flag"]:
     # モデルの作成
     model = A2C(PolicyNet, env, verbose=verbose, tensorboard_log=logdir, policy_kwargs=policy_kwargs, 
                 inference_kwargs=inference_kwargs, embedding_kwargs=embedding_kwargs, 
-                optimizer_kwargs=optimizer_kwargs, task_id_list=task_id_list, embedding_dim=embedding_dim, device=device, n_steps=n_steps)
+                optimizer_kwargs=optimizer_kwargs, task_id_list=task_id_list, embedding_dim=embedding_dim, 
+                device=device, n_steps=n_steps, loss_alphas=loss_alphas)
     #model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs, 
     #            device=device, n_steps=10)
 
@@ -234,6 +237,8 @@ if config["validation"]["flag"]:
     video = config["validation"]["flag"]
     n_val = config["validation"]["n_val"]
     timestep =  config["validation"]["timestep"]
+    env_kwargs = config["env"]["env_kwargs"]
+    env_init_random = config["learn"]["env_init_random"]
 
     model = A2C.load('{}embedding_model.zip'.format(savedir), device=device)
     plot_embedding_space(model, task_id_list, 'embedding_space_leaned', figdir=savedir)
@@ -243,8 +248,7 @@ if config["validation"]["flag"]:
         val_savedir = os.path.join(savedir, f'{task_int}')
         os.makedirs(val_savedir, exist_ok=True)
 
-        env_kwargs = config["env"]["env_kwargs"]
-        env_kwargs_list = [dict(task_id=task_id)]
+        env_kwargs_list = [dict(task_id=task_id, init_random=env_init_random)]
         [env_k.update(env_kwargs) for env_k in env_kwargs_list]
         env0 = make_vec_env(PointMassEnv, n_envs=1, env_kwargs_list=env_kwargs_list).envs[0]
 
@@ -282,7 +286,8 @@ if config["validation"]["flag"]:
                     break
 
                 obs_add_z = np.hstack([obs, z.detach().numpy().flatten()])
-                action, _states = model.predict(obs_add_z, deterministic=True)
+                #action, _states = model.predict(obs_add_z, deterministic=True)
+                action, _states = model.predict(obs_add_z, deterministic=False)
                 
                 obs, rewards, done, info = env0.step(action)
 
@@ -315,7 +320,7 @@ if config["validation"]["flag"]:
         env0.close()
         #ori_env.close()
 
-        #action_plot(model, task_id, 'learned', figdir=val_savedir)
+        action_plot(model, task_id, 'learned', figdir=val_savedir)
 
     print(starttime)
     print(endtime)

@@ -78,7 +78,8 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
         task_id_list: list = None,
-        embedding_dim: int = 1
+        embedding_dim: int = 3,
+        loss_alphas: list = [1, 1, 1]
     ):
 
         super(OnPolicyAlgorithm, self).__init__(
@@ -119,11 +120,12 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         if _init_setup_model:
             self._setup_model()
         
-        self.alpha_1 = 0.5
-        self.alpha_2 = 0.5
-        self.alpha_3 = 0.5
+        self.alpha_1, self.alpha_2, self.alpha_3 = loss_alphas
 
-        self.n_obs_history = 4
+        if self.inference_kwargs is not None:
+            self.n_obs_history = inference_kwargs["n_obs_history"]
+        else:
+            self.n_obs_history = 1
         if self.env is not None:
             self.obs_h_manager = ObservationHistoryManager(n_envs=self.env.num_envs, n_history=self.n_obs_history)
             self.obs_h_manager.add(self.env.reset())        # 他でもenv.reset()がされていないか要確認。環境の観測値の初期値にランダム要素がある場合バグになる可能性あり。
@@ -167,9 +169,9 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         self.embedding_optimizer = th.optim.RMSprop(self.embedding_net.parameters(), **self.optimizer_kwargs)
 
         # 推論ネットワークの作成
-        inf_obs_len = self.observation_space.shape[0]*self.n_obs_history
+        #inf_obs_len = self.observation_space.shape[0]*self.n_obs_history
         inference_kwargs = {} if self.inference_kwargs is None else self.inference_kwargs
-        self.inference_net = InferenceNet(observation_space=inf_obs_len, action_space=self.action_space.shape[0], 
+        self.inference_net = InferenceNet(observation_space=self.observation_space.shape[0], action_space=self.action_space.shape[0], 
                                           embedding_dim=self.embedding_dim, device=self.device, **inference_kwargs).to(self.device)
         self.inference_optimizer = th.optim.RMSprop(self.inference_net.parameters(), **self.optimizer_kwargs)
 
