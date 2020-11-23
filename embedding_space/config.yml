@@ -14,7 +14,7 @@ learn:
   env_init_random: False
   n_cpu: 32
   n_steps: 30   # 何ステップ分でNNの学習を行うか
-  total_timesteps: 4000000    # 学習タイムステップ
+  total_timesteps: 2000000    # 学習タイムステップ
   device: "cpu"
   verbose: 1
 validation:

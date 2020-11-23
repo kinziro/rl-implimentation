@@ -57,7 +57,7 @@ class BaseDistributionNet(nn.Module):
     def encoder(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        mean = F.tanh(self.fc_mean(x))
+        mean = th.tanh(self.fc_mean(x))
         log_std = self.fc_std(x)
 
         return mean, log_std
@@ -74,11 +74,11 @@ class BaseDistributionNet(nn.Module):
         return sum_independent_dims(log_prob)
     
     def base_forward(self, x, sampling_rule='sampling'):
-        x = x.reshape(-1, self.input_dim)
+        re_x = x.reshape(-1, self.input_dim)
         if self.normalization_coeff is not None:
-            norm_x = x / self.normalization_coeff
+            norm_x = re_x / self.normalization_coeff
         else:
-            norm_x = x
+            norm_x = re_x
         mean, log_std = self.encoder(norm_x)
         std = th.ones_like(mean) * log_std.exp()
         distribution = ReproduceNormal(mean, std)
@@ -106,8 +106,8 @@ class BaseDistributionNet(nn.Module):
         return z, log_prob
 
     def get_mean_std(self, x):
-        x = x.reshape(-1, self.input_dim)
-        mean, log_std = self.encoder(x)
+        re_x = x.reshape(-1, self.input_dim)
+        mean, log_std = self.encoder(re_x)
         std = th.ones_like(mean) * log_std.exp()
 
         return mean, std
@@ -124,11 +124,11 @@ class BaseDistributionNet(nn.Module):
         """
         z = th.tensor(z.detach().numpy())
 
-        x = x.reshape(-1, self.input_dim)
+        re_x = x.reshape(-1, self.input_dim)
         if self.normalization_coeff is not None:
-            norm_x = x / self.normalization_coeff
+            norm_x = re_x / self.normalization_coeff
         else:
-            norm_x = x
+            norm_x = re_x
         mean, log_std = self.encoder(norm_x)
         std = th.ones_like(mean) * log_std.exp()
         distribution = ReproduceNormal(mean, std)
@@ -387,7 +387,7 @@ class PolicyNet(ActorCriticPolicy):
         :param latent_sde: (Optional[th.Tensor]) Latent code for the gSDE exploration function
         :return: (Distribution) Action distribution
         """
-        mean_actions = F.tanh(self.action_net(latent_pi))
+        mean_actions = th.tanh(self.action_net(latent_pi))
 
         if isinstance(self.action_dist, DiagGaussianDistribution):
             return self.action_dist.proba_distribution(mean_actions, self.log_std)
