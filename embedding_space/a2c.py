@@ -325,7 +325,7 @@ class A2C(OnPolicyAlgorithm):
         self.policy_loss_history.append(policy_loss.item())
         self.inference_loss_history.append(inference_loss.item())
         self.embedding_loss_history.append(embedding_loss.item())
-        self.reward_history.append(reward_sum.item())
+        self.reward_history.append(reward_sum.mean().item())
         self.error_zs_history.append(error_zs.detach().numpy().tolist())
 
     def learn(
