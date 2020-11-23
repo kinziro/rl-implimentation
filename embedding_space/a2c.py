@@ -198,7 +198,7 @@ class A2C(OnPolicyAlgorithm):
                 R = gamma_r_hats.sum(dim=1)
                 R = th.tensor(R.detach().numpy())    # 勾配計算の影響をなくすために、定数化
 
-                reward_sum = (gammas*rewards).sum(dim=1).mean()
+                reward_sum = (gammas*rewards).sum(dim=1)
 
             # embedding loss
             embedding_log_probs = rollout_data.embedding_log_probs
