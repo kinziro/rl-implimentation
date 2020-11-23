@@ -232,14 +232,10 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             # 潜在変数を観測値に追加
             obs = self._last_obs
             obs_h = self.obs_h_manager.get()
-            if obs[0, 0] != obs_h[0, 0]:
-                print(obs[0, 0], obs_h[0, 0])
-            #print(f'-- {n_steps} --')
-            #print('obs:', obs)
-            #print('obs_h:', obs_h)
-            #obs_h = self._last_obs
+
             obs_add_z_tensor = th.cat([th.as_tensor(obs), z], dim=1)
             actions, _, log_prob, entropy = self.policy.forward(obs_add_z_tensor)
+
             # 推論NNによる潜在変数を取得
             obs_add_action_tensor = th.cat([th.tensor(obs_h), actions], dim=1)
             _, inference_log_prob = self.inference_net(obs_add_action_tensor)

@@ -47,6 +47,8 @@ class EmbeddingRolloutBufferSamples2(NamedTuple):
     gammas: th.Tensor
     error_zs: th.Tensor
     data_lens: th.Tensor
+    origin_env_idx: th.Tensor
+    env_weight: th.Tensor
 
 
 class EmbeddingRolloutBuffer(BaseBuffer):
@@ -223,6 +225,8 @@ class EmbeddingRolloutBuffer(BaseBuffer):
 
         data_list = []
         data_lens = []
+        origin_env_idx = []
+        env_idx_count = [0] * self.n_envs
         for var_i, var in enumerate(self.variables):
             tar_var =  self.__dict__[var]
             if len(tar_var.shape) == 2:
@@ -240,6 +244,8 @@ class EmbeddingRolloutBuffer(BaseBuffer):
 
                     if var_i == 0:
                         data_lens.append(data_len)
+                        origin_env_idx.append(e)
+                        env_idx_count[e] += 1
                     
                     v_idx += 1
             
@@ -248,8 +254,11 @@ class EmbeddingRolloutBuffer(BaseBuffer):
 
             data_list.append(v[0:v_idx])
         
-        data_list.append(th.tensor(data_lens))
+        env_weight = [env_idx_count[i] for i in origin_env_idx]
 
+        data_list.append(th.tensor(data_lens))
+        data_list.append(th.tensor(origin_env_idx))
+        data_list.append(th.tensor(env_weight))
 
         yield EmbeddingRolloutBufferSamples2(*data_list)
 

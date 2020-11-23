@@ -1,6 +1,6 @@
 env:
   env_kwargs: {"goal_range": 0.5, "reward_range": 1, "terminal_timestep": 28}
-  task_int_list: [0, 1, 2, 3]
+  task_int_list: [0, 1]
   max_task_int: 7
 algorithm:
   policy_kwargs: {"net_arch": [50, 50]}
@@ -12,9 +12,9 @@ algorithm:
 learn:
   flag: True
   env_init_random: False
-  n_cpu: 32
+  n_cpu: 16
   n_steps: 30   # 何ステップ分でNNの学習を行うか
-  total_timesteps: 2000000    # 学習タイムステップ
+  total_timesteps: 1000000    # 学習タイムステップ
   device: "cpu"
   verbose: 1
 validation:

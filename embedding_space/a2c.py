@@ -148,6 +148,7 @@ class A2C(OnPolicyAlgorithm):
         self.inference_loss_history = []
         self.embedding_loss_history = []
         self.reward_history = []
+        self.R_history = []
         self.error_zs_history = []
 
         self.policy_g_history = []
@@ -192,12 +193,17 @@ class A2C(OnPolicyAlgorithm):
             embedding_entropys = rollout_data.embedding_entropys
             gammas = rollout_data.gammas
             data_lens = rollout_data.data_lens
+            origin_env_idx = rollout_data.origin_env_idx
+            env_weight = rollout_data.env_weight
 
             with th.no_grad():
                 gamma_r_hats = gammas*(rewards + self.alpha_2*inference_log_probs + self.alpha_3*entropys)
                 R = gamma_r_hats.sum(dim=1)
                 R = th.tensor(R.detach().numpy())    # 勾配計算の影響をなくすために、定数化
 
+                #R_for_h = R / env_weight
+                #reward_sum = (gammas*rewards).sum(dim=1) / env_weight
+                R_for_h = R
                 reward_sum = (gammas*rewards).sum(dim=1)
 
             # embedding loss
@@ -205,11 +211,19 @@ class A2C(OnPolicyAlgorithm):
             embedding_log_probs_mean = embedding_log_probs.sum(dim=1) / data_lens
             embedding_entropys_mean = embedding_entropys.sum(dim=1) / data_lens
 
-            embedding_entropys = rollout_data.embedding_entropys
+            #embedding_entropys = rollout_data.embedding_entropys
             embedding_expected_term_1_each_cpu = R * (log_probs.sum(dim=1) + embedding_log_probs_mean)
             embedding_expected_term_2_each_cpu = (gammas * self.alpha_2 * inference_log_probs + gammas * self.alpha_3 * entropys).sum(dim=1)
-            embedding_expected_term = (embedding_expected_term_1_each_cpu + embedding_expected_term_2_each_cpu).mean()
-            embedding_loss = -1 * (embedding_expected_term + self.alpha_1 * embedding_entropys_mean.mean())
+            embedding_expected_term_each_cpu = embedding_expected_term_1_each_cpu + embedding_expected_term_2_each_cpu
+            embedding_loss_each_cpu = -1 * (embedding_expected_term_each_cpu + self.alpha_1 * embedding_entropys_mean)
+            #embedding_loss = (embedding_loss_each_cpu / env_weight).mean()
+            embedding_loss = (embedding_loss_each_cpu).mean()
+
+            #a = embedding_loss_each_cpu.detach().numpy()
+            #b = embedding_loss_each_cpu_weight.detach().numpy()
+            #c = env_weight.detach().numpy()
+            #if self.num_timesteps > 5000:
+            #    print('')
 
             # policy loss
             log_prob_sum = R * cut_log_probs_before_z.sum(dim=1)
@@ -217,19 +231,20 @@ class A2C(OnPolicyAlgorithm):
             entropy_sum = (self.alpha_3 * gammas * cut_entropys_before_z).sum(dim=1)
 
             policy_loss_each_cpu = -1 * (log_prob_sum + inference_log_probs_sum + entropy_sum)
-            policy_loss = policy_loss_each_cpu.mean()
+            #policy_loss = (policy_loss_each_cpu / env_weight).mean()
+            policy_loss = (policy_loss_each_cpu).mean()
 
             # inference loss
             inference_loss_each_cpu = -1 * (self.alpha_2 * gammas * cut_inference_log_probs_before_action).sum(dim=1)
-            inference_loss = inference_loss_each_cpu.mean()
+            #inference_loss = (inference_loss_each_cpu / env_weight).mean()
+            inference_loss = (inference_loss_each_cpu).mean()
 
             # Optimization step
+            # embedding parameter optimization
             self.policy.optimizer.zero_grad()
             self.inference_optimizer.zero_grad()
             self.embedding_optimizer.zero_grad()
             embedding_loss.backward(retain_graph=True)
-            #print('embedding_grad_before_norm', self.embedding_net.fc_std.weight.grad.detach().numpy())
-            #print('embedding_grad_after_norm ', self.embedding_net.fc_std.weight.grad.detach().numpy())
 
             policy_g_0 = copy.deepcopy(self.policy.mlp_extractor.shared_net[0].weight.grad.detach().numpy())
             inference_g_0 = copy.deepcopy(self.inference_net.fc_mean.weight.grad.detach().numpy())
@@ -275,6 +290,7 @@ class A2C(OnPolicyAlgorithm):
             #    print('embedding', embedding_g_1)
             #    print('')
 
+            # policy parameter optimization
             self.policy.optimizer.zero_grad()
             self.inference_optimizer.zero_grad()
             self.embedding_optimizer.zero_grad()
@@ -291,6 +307,7 @@ class A2C(OnPolicyAlgorithm):
             else:
                 self.policy.optimizer.step()
 
+            # inference parameter optimization
             self.policy.optimizer.zero_grad()
             self.inference_optimizer.zero_grad()
             self.embedding_optimizer.zero_grad()
@@ -326,6 +343,7 @@ class A2C(OnPolicyAlgorithm):
         self.inference_loss_history.append(inference_loss.item())
         self.embedding_loss_history.append(embedding_loss.item())
         self.reward_history.append(reward_sum.mean().item())
+        self.R_history.append(R_for_h.mean().item())
         self.error_zs_history.append(error_zs.detach().numpy().tolist())
 
     def learn(
@@ -352,6 +370,14 @@ class A2C(OnPolicyAlgorithm):
             eval_log_path=eval_log_path,
             reset_num_timesteps=reset_num_timesteps
         )
+    
+    def reset_task_ids(self, task_id_list):
+        for e, task_id in zip(self.env.envs, task_id_list):
+            e.env.reset(task_id)
+
+        self.env_task_id_list = [e.env.task_id for e in self.env.envs]
+        self.task_id_list = task_id_list
+        
 
     #def save(self, file_name):
     #    with open(file_name, 'wb') as f:

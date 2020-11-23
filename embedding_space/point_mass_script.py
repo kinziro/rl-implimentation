@@ -210,6 +210,7 @@ if config["learn"]["flag"]:
     plot_history(model.inference_loss_history, title='inference_loss', xlabel='episode', ylabel='loss', figdir=savedir)
     plot_history(model.embedding_loss_history, title='embedding_loss', xlabel='episode', ylabel='loss', figdir=savedir)
     plot_history(model.reward_history, title='reward_sum', xlabel='episode', ylabel='reward_sum', figdir=savedir)
+    plot_history(model.R_history, title='R_sum', xlabel='episode', ylabel='R_sum', figdir=savedir)
     error_zs = np.array(model.error_zs_history)
     for col in range(error_zs.shape[1]):
         plot_history(error_zs[:, col], title=f'error_z_{col}', xlabel='episode', ylabel='error_z', figdir=savedir)
