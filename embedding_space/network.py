@@ -36,13 +36,16 @@ def sum_independent_dims(tensor: th.Tensor) -> th.Tensor:
     return tensor
 
 class BaseDistributionNet(nn.Module):
-    def __init__(self, input_dim, output_dim, net_arch, device='cpu'):
+    def __init__(self, input_dim, output_dim, net_arch, normalization_coeff, device='cpu'):
         super().__init__()
 
         self.device = device
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.net_arch = net_arch
+        self.normalization_coeff = normalization_coeff
+        if self.normalization_coeff is not None:
+            self.normalization_coeff = th.tensor(normalization_coeff, requires_grad=False).reshape(1, -1)
 
         self.fc1 = nn.Linear(self.input_dim, net_arch[0])
         self.fc2 = nn.Linear(net_arch[0], net_arch[1])
@@ -54,7 +57,7 @@ class BaseDistributionNet(nn.Module):
     def encoder(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        mean = self.fc_mean(x)
+        mean = F.tanh(self.fc_mean(x))
         log_std = self.fc_std(x)
 
         return mean, log_std
@@ -72,7 +75,11 @@ class BaseDistributionNet(nn.Module):
     
     def base_forward(self, x, sampling_rule='sampling'):
         x = x.reshape(-1, self.input_dim)
-        mean, log_std = self.encoder(x)
+        if self.normalization_coeff is not None:
+            norm_x = x / self.normalization_coeff
+        else:
+            norm_x = x
+        mean, log_std = self.encoder(norm_x)
         std = th.ones_like(mean) * log_std.exp()
         distribution = ReproduceNormal(mean, std)
         if sampling_rule=='deterministic':
@@ -118,7 +125,11 @@ class BaseDistributionNet(nn.Module):
         z = th.tensor(z.detach().numpy())
 
         x = x.reshape(-1, self.input_dim)
-        mean, log_std = self.encoder(x)
+        if self.normalization_coeff is not None:
+            norm_x = x / self.normalization_coeff
+        else:
+            norm_x = x
+        mean, log_std = self.encoder(norm_x)
         std = th.ones_like(mean) * log_std.exp()
         distribution = ReproduceNormal(mean, std)
         log_prob = distribution.log_prob(z)
@@ -127,24 +138,26 @@ class BaseDistributionNet(nn.Module):
 
 
 class InferenceNet(BaseDistributionNet):
-    def __init__(self, observation_space, action_space, embedding_dim, n_obs_history=1, net_arch=[100, 100], device='cpu'):
+    def __init__(self, observation_space, action_space, embedding_dim, n_obs_history=1, net_arch=[100, 100], normalization_coeff=None, device='cpu'):
 
         self.observation_space = observation_space
         self.action_space = action_space
         self.n_obs_history = n_obs_history
         input_dim = (self.observation_space * self.n_obs_history) + self.action_space
         output_dim = embedding_dim
+        if normalization_coeff is not None:
+            normalization_coeff = normalization_coeff[:observation_space] * n_obs_history + normalization_coeff[observation_space:]
 
-        super().__init__(input_dim=input_dim, output_dim=output_dim, net_arch=net_arch, device=device)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, net_arch=net_arch, normalization_coeff=normalization_coeff, device=device)
 
 
 class EmbeddingNet(BaseDistributionNet):
-    def __init__(self, task_id_dim, embedding_dim, net_arch=[100, 100], device='cpu'):
+    def __init__(self, task_id_dim, embedding_dim, net_arch=[100, 100], normalization_coeff=None, device='cpu'):
         self.task_id_dim = task_id_dim
         input_dim = self.task_id_dim
         output_dim = embedding_dim
 
-        super().__init__(input_dim=input_dim, output_dim=output_dim, net_arch=net_arch, device=device)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, net_arch=net_arch, normalization_coeff=normalization_coeff, device=device)
         
     def entropy(self, distribution) -> th.Tensor:
         return sum_independent_dims(distribution.entropy())
@@ -184,7 +197,12 @@ class PolicyNet(ActorCriticPolicy):
         normalize_images: bool = True,
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        normalization_coeff: list = None
     ):
+        self.normalization_coeff = normalization_coeff
+        if self.normalization_coeff is not None:
+            self.normalization_coeff = th.tensor(self.normalization_coeff, requires_grad=False).reshape(1, -1)
+
 
         if optimizer_kwargs is None:
             optimizer_kwargs = {}
@@ -311,7 +329,11 @@ class PolicyNet(ActorCriticPolicy):
         :param deterministic: (bool) Whether to sample or use deterministic actions
         :return: (Tuple[th.Tensor, th.Tensor, th.Tensor]) action, value and log probability of the action
         """
-        latent_pi, latent_vf, latent_sde = self._get_latent(obs)
+        if self.normalization_coeff is not None:
+            norm_obs = obs / self.normalization_coeff
+        else:
+            norm_obs = obs
+        latent_pi, latent_vf, latent_sde = self._get_latent(norm_obs)
         # Evaluate the values for the given observations
         values = self.value_net(latent_vf)
         distribution = self._get_action_dist_from_latent(latent_pi, latent_sde=latent_sde)
@@ -347,11 +369,41 @@ class PolicyNet(ActorCriticPolicy):
         """
         actions = th.tensor(actions.detach().numpy())
 
-        latent_pi, latent_vf, latent_sde = self._get_latent(obs)
+        if self.normalization_coeff is not None:
+            norm_obs = obs / self.normalization_coeff
+        else:
+            norm_obs = obs
+        latent_pi, latent_vf, latent_sde = self._get_latent(norm_obs)
         distribution = self._get_action_dist_from_latent(latent_pi, latent_sde)
         log_prob = distribution.log_prob(actions)
         values = self.value_net(latent_vf)
         return values, log_prob, distribution.entropy()
+
+    def _get_action_dist_from_latent(self, latent_pi: th.Tensor, latent_sde: Optional[th.Tensor] = None) -> Distribution:
+        """
+        Retrieve action distribution given the latent codes.
+
+        :param latent_pi: (th.Tensor) Latent code for the actor
+        :param latent_sde: (Optional[th.Tensor]) Latent code for the gSDE exploration function
+        :return: (Distribution) Action distribution
+        """
+        mean_actions = F.tanh(self.action_net(latent_pi))
+
+        if isinstance(self.action_dist, DiagGaussianDistribution):
+            return self.action_dist.proba_distribution(mean_actions, self.log_std)
+        elif isinstance(self.action_dist, CategoricalDistribution):
+            # Here mean_actions are the logits before the softmax
+            return self.action_dist.proba_distribution(action_logits=mean_actions)
+        elif isinstance(self.action_dist, MultiCategoricalDistribution):
+            # Here mean_actions are the flattened logits
+            return self.action_dist.proba_distribution(action_logits=mean_actions)
+        elif isinstance(self.action_dist, BernoulliDistribution):
+            # Here mean_actions are the logits (before rounding to get the binary actions)
+            return self.action_dist.proba_distribution(action_logits=mean_actions)
+        elif isinstance(self.action_dist, StateDependentNoiseDistribution):
+            return self.action_dist.proba_distribution(mean_actions, self.log_std, latent_sde)
+        else:
+            raise ValueError("Invalid action distribution")
 
 
 

@@ -98,6 +98,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             tensorboard_log=tensorboard_log,
         )
 
+        self.device_str = device
         self.n_steps = n_steps
         self.gamma = gamma
         self.gae_lambda = gae_lambda
@@ -130,6 +131,8 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             self.obs_h_manager = ObservationHistoryManager(n_envs=self.env.num_envs, n_history=self.n_obs_history)
             self.obs_h_manager.add(self.env.reset())        # 他でもenv.reset()がされていないか要確認。環境の観測値の初期値にランダム要素がある場合バグになる可能性あり。
         
+        self.task_id_idx = 0
+        
     def _setup_model(self) -> None:
         self._setup_lr_schedule()
         self.set_random_seed(self.seed)
@@ -138,6 +141,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         policy_observation_high = max(self.observation_space.high)
         observation_high = np.array([policy_observation_high] * policy_observation_dim)
         policy_observation_space = spaces.Box(-observation_high, observation_high)
+        policy_normalization_coeff = [self.observation_space.high[0]]*self.observation_space.shape[0] + [1]*self.embedding_dim
 
         self.rollout_buffer = EmbeddingRolloutBuffer(
             self.n_steps,
@@ -159,20 +163,27 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             self.lr_schedule,
             use_sde=self.use_sde,
             device=self.device,
+            normalization_coeff=policy_normalization_coeff,
             **self.policy_kwargs,  # pytype:disable=not-instantiable
         )
         self.policy = self.policy.to(self.device)
 
         # 埋め込みネットワークの作成
+        emb_normalization_coeff = [1]*self.task_id_dim
         embedding_kwargs = {} if self.embedding_kwargs is None else self.embedding_kwargs
-        self.embedding_net = EmbeddingNet(task_id_dim=self.task_id_dim, embedding_dim=self.embedding_dim, device=self.device, **embedding_kwargs).to(self.device)
+        self.embedding_net = EmbeddingNet(task_id_dim=self.task_id_dim, embedding_dim=self.embedding_dim, 
+                                          normalization_coeff=emb_normalization_coeff, device=self.device, **embedding_kwargs).to(self.device)
         self.embedding_optimizer = th.optim.RMSprop(self.embedding_net.parameters(), **self.optimizer_kwargs)
 
         # 推論ネットワークの作成
+        obs_high = float(self.observation_space.high[0])
+        act_high =  float(self.action_space.high[0])
+        inf_normalization_coeff = [obs_high] * self.observation_space.shape[0] + [act_high] * self.action_space.shape[0]
         #inf_obs_len = self.observation_space.shape[0]*self.n_obs_history
         inference_kwargs = {} if self.inference_kwargs is None else self.inference_kwargs
         self.inference_net = InferenceNet(observation_space=self.observation_space.shape[0], action_space=self.action_space.shape[0], 
-                                          embedding_dim=self.embedding_dim, device=self.device, **inference_kwargs).to(self.device)
+                                          embedding_dim=self.embedding_dim, normalization_coeff=inf_normalization_coeff, 
+                                          device=self.device, **inference_kwargs).to(self.device)
         self.inference_optimizer = th.optim.RMSprop(self.inference_net.parameters(), **self.optimizer_kwargs)
 
     def collect_rollouts(
@@ -198,10 +209,14 @@ class OnPolicyAlgorithm(BaseAlgorithm):
 
         callback.on_rollout_start()
 
+        #for i in range(self.n_envs):
+        #    self.env.envs[i].env.set_goal(self.task_id_list[self.task_id_idx])
         self._last_obs = self.env.reset()
         self._last_dones = np.zeros((self.env.num_envs,), dtype=np.bool)
         self.obs_h_manager = ObservationHistoryManager(n_envs=self.env.num_envs, n_history=self.n_obs_history)
         self.obs_h_manager.add(self._last_obs)
+
+        #self.task_id_idx = (self.task_id_idx + 1) % len(self.task_id_list)
 
         # zは更新ごとに一回だけサンプリング
         # 潜在変数を推定

@@ -286,8 +286,7 @@ if config["validation"]["flag"]:
                     break
 
                 obs_add_z = np.hstack([obs, z.detach().numpy().flatten()])
-                #action, _states = model.predict(obs_add_z, deterministic=True)
-                action, _states = model.predict(obs_add_z, deterministic=False)
+                action, _states = model.predict(obs_add_z, deterministic=True)
                 
                 obs, rewards, done, info = env0.step(action)
 

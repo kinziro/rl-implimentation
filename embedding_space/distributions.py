@@ -5,6 +5,8 @@ from gym import spaces
 from torch.distributions import Bernoulli, Categorical, Normal
 from torch.distributions.utils import _standard_normal, broadcast_all
 import torch as th
+import torch.nn as nn
+import torch.nn.functional as F
 
 from stable_baselines3.common.distributions import (
     BernoulliDistribution,
@@ -34,7 +36,8 @@ class ReproduceDiagGaussianDistribution(DiagGaussianDistribution):
         :param log_std: (th.Tensor)
         :return: (DiagGaussianDistribution)
         """
-        action_std = th.ones_like(mean_actions) * log_std.exp()
+        #action_std = th.ones_like(mean_actions) * log_std.exp()
+        action_std = th.ones_like(mean_actions) * 0.2
         self.distribution = ReproduceNormal(mean_actions, action_std)
         return self
 
