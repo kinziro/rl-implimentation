@@ -163,7 +163,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             self.lr_schedule,
             use_sde=self.use_sde,
             device=self.device,
-            normalization_coeff=policy_normalization_coeff,
+            normalization_coeff=None,
             **self.policy_kwargs,  # pytype:disable=not-instantiable
         )
         self.policy = self.policy.to(self.device)
@@ -172,7 +172,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         emb_normalization_coeff = [1]*self.task_id_dim
         embedding_kwargs = {} if self.embedding_kwargs is None else self.embedding_kwargs
         self.embedding_net = EmbeddingNet(task_id_dim=self.task_id_dim, embedding_dim=self.embedding_dim, 
-                                          normalization_coeff=emb_normalization_coeff, device=self.device, **embedding_kwargs).to(self.device)
+                                          normalization_coeff=None, device=self.device, **embedding_kwargs).to(self.device)
         self.embedding_optimizer = th.optim.RMSprop(self.embedding_net.parameters(), **self.optimizer_kwargs)
 
         # 推論ネットワークの作成
@@ -182,7 +182,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         #inf_obs_len = self.observation_space.shape[0]*self.n_obs_history
         inference_kwargs = {} if self.inference_kwargs is None else self.inference_kwargs
         self.inference_net = InferenceNet(observation_space=self.observation_space.shape[0], action_space=self.action_space.shape[0], 
-                                          embedding_dim=self.embedding_dim, normalization_coeff=inf_normalization_coeff, 
+                                          embedding_dim=self.embedding_dim, normalization_coeff=None, 
                                           device=self.device, **inference_kwargs).to(self.device)
         self.inference_optimizer = th.optim.RMSprop(self.inference_net.parameters(), **self.optimizer_kwargs)
 
