@@ -201,10 +201,10 @@ class A2C(OnPolicyAlgorithm):
                 R = gamma_r_hats.sum(dim=1)
                 R = th.tensor(R.detach().numpy())    # 勾配計算の影響をなくすために、定数化
 
-                #R_for_h = R / env_weight
-                #reward_sum = (gammas*rewards).sum(dim=1) / env_weight
-                R_for_h = R
-                reward_sum = (gammas*rewards).sum(dim=1)
+                R_for_h = R / env_weight
+                reward_sum = (gammas*rewards).sum(dim=1) / env_weight
+                #R_for_h = R
+                #reward_sum = (gammas*rewards).sum(dim=1)
 
             # embedding loss
             embedding_log_probs = rollout_data.embedding_log_probs
@@ -216,8 +216,8 @@ class A2C(OnPolicyAlgorithm):
             embedding_expected_term_2_each_cpu = (gammas * self.alpha_2 * inference_log_probs + gammas * self.alpha_3 * entropys).sum(dim=1)
             embedding_expected_term_each_cpu = embedding_expected_term_1_each_cpu + embedding_expected_term_2_each_cpu
             embedding_loss_each_cpu = -1 * (embedding_expected_term_each_cpu + self.alpha_1 * embedding_entropys_mean)
-            #embedding_loss = (embedding_loss_each_cpu / env_weight).mean()
-            embedding_loss = (embedding_loss_each_cpu).mean()
+            embedding_loss = (embedding_loss_each_cpu / env_weight).mean()
+            #embedding_loss = (embedding_loss_each_cpu).mean()
 
             #a = embedding_loss_each_cpu.detach().numpy()
             #b = embedding_loss_each_cpu_weight.detach().numpy()
@@ -231,13 +231,13 @@ class A2C(OnPolicyAlgorithm):
             entropy_sum = (self.alpha_3 * gammas * cut_entropys_before_z).sum(dim=1)
 
             policy_loss_each_cpu = -1 * (log_prob_sum + inference_log_probs_sum + entropy_sum)
-            #policy_loss = (policy_loss_each_cpu / env_weight).mean()
-            policy_loss = (policy_loss_each_cpu).mean()
+            policy_loss = (policy_loss_each_cpu / env_weight).mean()
+            #policy_loss = (policy_loss_each_cpu).mean()
 
             # inference loss
             inference_loss_each_cpu = -1 * (self.alpha_2 * gammas * cut_inference_log_probs_before_action).sum(dim=1)
-            #inference_loss = (inference_loss_each_cpu / env_weight).mean()
-            inference_loss = (inference_loss_each_cpu).mean()
+            inference_loss = (inference_loss_each_cpu / env_weight).mean()
+            #inference_loss = (inference_loss_each_cpu).mean()
 
             # Optimization step
             # embedding parameter optimization
