@@ -161,6 +161,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             policy_observation_space,
             self.action_space,
             self.lr_schedule,
+            activation_fn=th.nn.Tanh,
             use_sde=self.use_sde,
             device=self.device,
             normalization_coeff=None,

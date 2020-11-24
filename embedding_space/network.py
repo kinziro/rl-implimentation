@@ -55,9 +55,12 @@ class BaseDistributionNet(nn.Module):
         self.sample_eps = None
 
     def encoder(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+        #x = F.relu(self.fc1(x))
+        #x = F.relu(self.fc2(x))
+        x = th.tanh(self.fc1(x))
+        x = th.tanh(self.fc2(x))
         mean = th.tanh(self.fc_mean(x))
+        #mean = self.fc_mean(x)
         log_std = self.fc_std(x)
 
         return mean, log_std

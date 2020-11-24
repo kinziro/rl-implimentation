@@ -36,8 +36,8 @@ class ReproduceDiagGaussianDistribution(DiagGaussianDistribution):
         :param log_std: (th.Tensor)
         :return: (DiagGaussianDistribution)
         """
-        #action_std = th.ones_like(mean_actions) * log_std.exp()
-        action_std = th.ones_like(mean_actions) * 0.2
+        action_std = th.ones_like(mean_actions) * log_std.exp()
+        #action_std = th.ones_like(mean_actions) * 0.2
         self.distribution = ReproduceNormal(mean_actions, action_std)
         return self
 
