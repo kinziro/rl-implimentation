@@ -7,7 +7,7 @@ import numpy as np
 
 from stable_baselines3.common import logger
 #from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
-from on_policy_algorithm import OnPolicyAlgorithm
+from on_policy_algorithm_task_and_env_id import OnPolicyAlgorithm
 from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback
 from stable_baselines3.common.utils import explained_variance
@@ -83,7 +83,10 @@ class A2C(OnPolicyAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
         task_id_list: list = None,
-        embedding_dim: int = 3,
+        task_id_dim: int = 4,
+        env_id_dim: int = 4,
+        task_embedding_dim: int = 3,
+        env_embedding_dim: int = 3,
         loss_alphas: list = [1, 1, 1]
     ):
 
@@ -110,7 +113,10 @@ class A2C(OnPolicyAlgorithm):
             seed=seed,
             _init_setup_model=False,
             task_id_list=task_id_list,
-            embedding_dim=embedding_dim,
+            task_id_dim=task_id_dim,
+            env_id_dim=env_id_dim,
+            task_embedding_dim=task_embedding_dim,
+            env_embedding_dim=env_embedding_dim,
             loss_alphas=loss_alphas
         )
 
@@ -248,11 +254,11 @@ class A2C(OnPolicyAlgorithm):
 
             policy_g_0 = copy.deepcopy(self.policy.mlp_extractor.shared_net[0].weight.grad.detach().numpy())
             inference_g_0 = copy.deepcopy(self.inference_net.fc_mean.weight.grad.detach().numpy())
-            embedding_g_0 = copy.deepcopy(self.embedding_net.fc_mean.weight.grad.detach().numpy())
+            embedding_g_0 = copy.deepcopy(self.embedding_net.fc_mean_t.weight.grad.detach().numpy())
 
             policy_w_0 = copy.deepcopy(self.policy.mlp_extractor.shared_net[0].weight.detach().numpy())
             inference_w_0 = copy.deepcopy(self.inference_net.fc_mean.weight.detach().numpy())
-            embedding_w_0 = copy.deepcopy(self.embedding_net.fc_mean.weight.detach().numpy())
+            embedding_w_0 = copy.deepcopy(self.embedding_net.fc_mean_t.weight.detach().numpy())
 
             self.policy_g_history.append([np.max(policy_g_0), np.min(policy_g_0)])
             self.inference_g_history.append([np.max(inference_g_0), np.min(inference_g_0)])
@@ -299,7 +305,7 @@ class A2C(OnPolicyAlgorithm):
 
             policy_g_2 = copy.deepcopy(self.policy.mlp_extractor.shared_net[0].weight.grad.detach().numpy())
             inference_g_2 = copy.deepcopy(self.inference_net.fc_mean.weight.grad.detach().numpy())
-            embedding_g_2 = copy.deepcopy(self.embedding_net.fc_mean.weight.grad.detach().numpy())
+            embedding_g_2 = copy.deepcopy(self.embedding_net.fc_mean_t.weight.grad.detach().numpy())
 
             import math
             if math.isnan(policy_g_2[0, 0]) or math.isnan(inference_g_2[0, 0]) or math.isnan(embedding_g_2[0, 0]):
@@ -316,7 +322,7 @@ class A2C(OnPolicyAlgorithm):
 
             policy_g_3 = copy.deepcopy(self.policy.mlp_extractor.shared_net[0].weight.grad.detach().numpy())
             inference_g_3 = copy.deepcopy(self.inference_net.fc_mean.weight.grad.detach().numpy())
-            embedding_g_3 = copy.deepcopy(self.embedding_net.fc_mean.weight.grad.detach().numpy())
+            embedding_g_3 = copy.deepcopy(self.embedding_net.fc_mean_t.weight.grad.detach().numpy())
 
             import math
             if math.isnan(policy_g_3[0, 0]) or math.isnan(inference_g_3[0, 0]) or math.isnan(embedding_g_3[0, 0]):
@@ -356,7 +362,8 @@ class A2C(OnPolicyAlgorithm):
         n_eval_episodes: int = 5,
         tb_log_name: str = "A2C",
         eval_log_path: Optional[str] = None,
-        reset_num_timesteps: bool = True
+        reset_num_timesteps: bool = True,
+        savedir = None,
     ) -> "A2C":
 
         return super(A2C, self).learn(
@@ -368,7 +375,8 @@ class A2C(OnPolicyAlgorithm):
             n_eval_episodes=n_eval_episodes,
             tb_log_name=tb_log_name,
             eval_log_path=eval_log_path,
-            reset_num_timesteps=reset_num_timesteps
+            reset_num_timesteps=reset_num_timesteps,
+            savedir = savedir,
         )
     
     def reset_task_ids(self, task_id_list):

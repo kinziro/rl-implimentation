@@ -139,6 +139,20 @@ class BaseDistributionNet(nn.Module):
 
         return log_prob, distribution.entropy()
 
+class InferenceNet2(BaseDistributionNet):
+    def __init__(self, observation_space, action_space, embedding_dim, n_obs_history=1, net_arch=[100, 100], normalization_coeff=None, device='cpu'):
+
+        self.observation_space = observation_space
+        self.action_space = action_space
+        self.n_obs_history = n_obs_history
+        input_dim = (self.observation_space * self.n_obs_history) + (self.action_space * self.n_obs_history)
+        output_dim = embedding_dim
+        if normalization_coeff is not None:
+            normalization_coeff = normalization_coeff[:observation_space] * n_obs_history + normalization_coeff[observation_space:]
+
+        super().__init__(input_dim=input_dim, output_dim=output_dim, net_arch=net_arch, normalization_coeff=normalization_coeff, device=device)
+
+
 
 class InferenceNet(BaseDistributionNet):
     def __init__(self, observation_space, action_space, embedding_dim, n_obs_history=1, net_arch=[100, 100], normalization_coeff=None, device='cpu'):
@@ -177,6 +191,150 @@ class EmbeddingNet(BaseDistributionNet):
         entropy = self.entropy(distribution)
 
         return z, log_prob, entropy
+
+class EmbeddingNet2(nn.Module):
+    def __init__(self, task_id_dim, env_id_dim, task_embedding_dim, env_embedding_dim, net_arch=[100, 100], normalization_coeff=None, device='cpu'):
+        super().__init__()
+        self.task_id_dim = task_id_dim
+        output_dim = task_embedding_dim + env_embedding_dim
+
+        # 以下コンストラクタ
+        self.device = device
+        self.input_dim_t = task_id_dim
+        self.input_dim_e = env_id_dim
+        self.output_dim_t = task_embedding_dim
+        self.output_dim_e = env_embedding_dim
+        self.net_arch = net_arch
+        self.normalization_coeff = normalization_coeff
+        if self.normalization_coeff is not None:
+            self.normalization_coeff = th.tensor(normalization_coeff, requires_grad=False).reshape(1, -1)
+
+        self.fc1_t = nn.Linear(self.input_dim_t, net_arch[0])
+        self.fc2_t = nn.Linear(net_arch[0], net_arch[1])
+        self.fc_mean_t = nn.Linear(net_arch[1], self.output_dim_t)
+        self.fc_std_t = nn.Linear(net_arch[1], self.output_dim_t)
+
+        self.fc1_e = nn.Linear(self.input_dim_e, net_arch[0])
+        self.fc2_e = nn.Linear(net_arch[0], net_arch[1])
+        self.fc_mean_e = nn.Linear(net_arch[1], self.output_dim_e)
+        self.fc_std_e = nn.Linear(net_arch[1], self.output_dim_e)
+
+        self.sample_eps = None
+
+    def encoder_t(self, x):
+        x = th.tanh(self.fc1_t(x))
+        x = th.tanh(self.fc2_t(x))
+        mean = th.tanh(self.fc_mean_t(x))
+        log_std = self.fc_std_t(x)
+
+        return mean, log_std
+
+    def encoder_e(self, x):
+        x = th.tanh(self.fc1_e(x))
+        x = th.tanh(self.fc2_e(x))
+        mean = th.tanh(self.fc_mean_e(x))
+        log_std = self.fc_std_e(x)
+
+        return mean, log_std
+ 
+    def log_prob(self, distribution, actions: th.Tensor) -> th.Tensor:
+        """
+        Get the log probabilities of actions according to the distribution.
+        Note that you must first call the ``proba_distribution()`` method.
+
+        :param actions: (th.Tensor)
+        :return: (th.Tensor)
+        """
+        log_prob = distribution.log_prob(actions)
+        return sum_independent_dims(log_prob)
+    
+    def base_forward(self, t_id, e_id, sampling_rule='sampling'):
+        re_t_id = t_id.reshape(-1, self.input_dim_t)
+        re_e_id = e_id.reshape(-1, self.input_dim_e)
+        if self.normalization_coeff is not None:
+            norm_x_t = re_t_id / self.normalization_coeff
+            norm_x_e = re_e_id / self.normalization_coeff
+        else:
+            norm_x_t = re_t_id
+            norm_x_e = re_e_id
+        mean_t, log_std_t = self.encoder_t(norm_x_t)
+        mean_e, log_std_e = self.encoder_e(norm_x_e)
+        mean = th.cat([mean_t, mean_e], dim=1)
+        log_std = th.cat([log_std_t, log_std_e], dim=1)
+
+        std = th.ones_like(mean) * log_std.exp()
+        distribution = ReproduceNormal(mean, std)
+        if sampling_rule=='deterministic':
+            z = mean
+        elif sampling_rule=='reproduce':
+            z = distribution.reproduce_sample(self.sample_eps)
+        else:
+            z, self.sample_eps = distribution.rsample2()
+        
+        cut_z = th.tensor(z.detach().numpy())
+        log_prob = self.log_prob(distribution, cut_z)
+
+        return z, log_prob, distribution
+    
+    def forward(self, t_id, e_id, reproduce=False):
+        sampling_rule = 'reproduce' if reproduce else 'sampling'
+        z, log_prob, distribution = self.base_forward(t_id, e_id, sampling_rule)
+        entropy = self.entropy(distribution)
+
+        return z, log_prob, entropy
+
+    def predict(self, t_id, e_id):
+        z, log_prob, distribution = self.base_forward(t_id, e_id, 'deterministic')
+        entropy = self.entropy(distribution)
+
+        return z, log_prob, entropy
+
+    def get_mean_std(self, t_id, e_id):
+        re_x_t = t_id.reshape(-1, self.input_dim_t)
+        re_x_e = e_id.reshape(-1, self.input_dim_e)
+        mean_t, log_std_t = self.encoder_t(re_x_t)
+        mean_e, log_std_e = self.encoder_e(re_x_e)
+
+        mean = th.cat([mean_t, mean_e], dim=1)
+        log_std = th.cat([log_std_t, log_std_e], dim=1)
+        std = th.ones_like(mean) * log_std.exp()
+
+        return mean, std
+
+    def evaluate_actions(self, t_id: th.Tensor, e_id: th.Tensor, z: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+        """
+        Evaluate actions according to the current policy,
+        given the observations.
+
+        :param obs: (th.Tensor)
+        :param actions: (th.Tensor)
+        :return: (th.Tensor, th.Tensor, th.Tensor) estimated value, log likelihood of taking those actions
+            and entropy of the action distribution.
+        """
+        z = th.tensor(z.detach().numpy())
+
+        re_x_t = t_id.reshape(-1, self.input_dim_t)
+        re_x_e = e_id.reshape(-1, self.input_dim_e)
+        if self.normalization_coeff is not None:
+            norm_x_t = re_t_id / self.normalization_coeff
+            norm_x_e = re_e_id / self.normalization_coeff
+        else:
+            norm_x_t = re_t_id
+            norm_x_e = re_e_id
+
+        mean_t, log_std_t = self.encoder_t(re_x_t)
+        mean_e, log_std_e = self.encoder_e(re_x_e)
+        mean = th.cat([mean_t, mean_e], dim=1)
+        log_std = th.cat([log_std_t, log_std_e], dim=1)
+
+        std = th.ones_like(mean) * log_std.exp()
+        distribution = ReproduceNormal(mean, std)
+        log_prob = distribution.log_prob(z)
+
+        return log_prob, distribution.entropy()
+        
+    def entropy(self, distribution) -> th.Tensor:
+        return sum_independent_dims(distribution.entropy())
 
 
 class PolicyNet(ActorCriticPolicy):
@@ -409,10 +567,25 @@ class PolicyNet(ActorCriticPolicy):
             raise ValueError("Invalid action distribution")
 
 
+class StateEmbeddingMappingNet(nn.Module):
+    def __init__(self, input_dim, output_dim, net_arch, normalization_coeff=None, device='cpu'):
+        super().__init__()
 
-    #def predict(self, x):
-    #    actions, values, log_prob = self.base_forward(x, 'deterministic')
+        self.device = device
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.net_arch = net_arch
+        self.normalization_coeff = normalization_coeff
+        if self.normalization_coeff is not None:
+            self.normalization_coeff = th.tensor(normalization_coeff, requires_grad=False).reshape(1, -1)
 
-    #    return actions, values, log_prob
+        self.fc1 = nn.Linear(self.input_dim, net_arch[0])
+        self.fc2 = nn.Linear(net_arch[0], net_arch[1])
+        self.fc3 = nn.Linear(net_arch[1], self.output_dim)
 
+    def forward(self, x):
+        x = th.tanh(self.fc1(x))
+        x = th.tanh(self.fc2(x))
+        z = th.tanh(self.fc_3(x))
 
+        return z

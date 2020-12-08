@@ -19,7 +19,8 @@ import yaml
 #from a2c_test import A2C
 #from stable_baselines3.common.policies import MlpPolicy
 from network import PolicyNet
-from a2c import A2C
+#from a2c import A2C
+from a2c_task_and_env_id import A2C
 #from stable_baselines3.common import set_global_seeds
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 #from stable_baselines3 import PPO, A2C
@@ -36,7 +37,9 @@ from my_make_vec_env import make_vec_env
 import torch as th
 
 import exenv.point_mass
-from exenv.point_mass.point_mass_env import PointMassEnv
+#from exenv.point_mass.point_mass_env import PointMassEnv
+from exenv.point_mass.point_mass_env_obs_error import PointMassEnv
+from mpl_toolkits.mplot3d import Axes3D
 
 def action_plot(model, task_id, add_label, figdir):
     xs = np.arange(-10, 10, 0.1)
@@ -45,12 +48,11 @@ def action_plot(model, task_id, add_label, figdir):
     a = np.pi * 0.5 * 10
 
     # 3D表示
-    from mpl_toolkits.mplot3d import Axes3D
 
     ret = []
     for x in xs:
         for y in ys:
-            z, _, _ = model.embedding_net.predict(th.tensor(task_id).float())
+            z, _, _ = model.embedding_net.predict(th.tensor(task_id[:task_id_dim]).float(), th.tensor(task_id[task_id_dim:]).float())
             z_list =  z.detach().numpy().flatten()
             obs_add_z = np.hstack([x, y, z.detach().numpy().flatten()])
             action, _states = model.predict(obs_add_z, deterministic=True)
@@ -74,7 +76,7 @@ def action_plot(model, task_id, add_label, figdir):
     # xのみ
     ret = []
     for x in xs:
-        z, _, _ = model.embedding_net.predict(th.tensor(task_id).float())
+        z, _, _ = model.embedding_net.predict(th.tensor(task_id[:task_id_dim]).float(), th.tensor(task_id[task_id_dim:]).float())
         z_list =  z.detach().numpy().flatten()
         obs_add_z = np.hstack([x, 0, z.detach().numpy().flatten()])
         action, _ = model.predict(obs_add_z, deterministic=True)
@@ -93,7 +95,7 @@ def action_plot(model, task_id, add_label, figdir):
     # yのみ
     ret = []
     for y in ys:
-        z, _, _ = model.embedding_net.predict(th.tensor(task_id).float())
+        z, _, _ = model.embedding_net.predict(th.tensor(task_id[:task_id_dim]).float(), th.tensor(task_id[task_id_dim:]).float())
         z_list =  z.detach().numpy().flatten()
         obs_add_z = np.hstack([0, y, z.detach().numpy().flatten()])
         action, _ = model.predict(obs_add_z, deterministic=True)
@@ -117,7 +119,7 @@ def plot_history(data, title, xlabel, ylabel, figdir):
     plt.ylabel(ylabel)
     plt.savefig(os.path.join(figdir, f'{title}.png'))
 
-def plot_embedding_space(model, task_id_list, title, figdir):
+def plot_embedding_space(model, task_id_list, title, figdir, val_flag_list=None):
     colors = ['b', 'r', 'k', 'g', 'b', 'r', 'k', 'g']
     #markers = ['+', '+', '+', '+', 'o', 'o', 'o', 'o']
     markers = ['$0$', '$1$', '$2$', '$3$', '$4$', '$5$', '$6$', '$7$']
@@ -126,33 +128,103 @@ def plot_embedding_space(model, task_id_list, title, figdir):
 
     fig = plt.figure()
     for i, task_id in enumerate(task_id_list):
-        mean, std = model.embedding_net.get_mean_std(th.tensor(task_id).float())
+        if val_flag_list is not None:
+            if val_flag_list[i] == 0:
+                continue
+        mean, std = model.embedding_net.get_mean_std(th.tensor(task_id[:task_id_dim]).float(), th.tensor(task_id[task_id_dim:]).float())
         mean_np = mean.detach().numpy().flatten()
         std_np = std.detach().numpy().flatten()
-        x = std_np[0] * np.cos(theta) + mean_np[0]
-        y = std_np[1] * np.sin(theta) + mean_np[1]
+        z1 = std_np[0] * np.cos(theta) + mean_np[0]
+        z2 = std_np[1] * np.sin(theta) + mean_np[1]
 
-        task_int = np.argmax(np.array(task_id).reshape(1, -1), axis=1)[0]
-        plt.plot(x, y, label=f'{task_int}', color=colors[i])
+        task_int = np.argmax(np.array(task_id[:task_id_dim]).reshape(1, -1), axis=1)[0]
+        env_int = np.argmax(np.array(task_id[task_id_dim:]).reshape(1, -1), axis=1)[0]
+
+        plt.plot(z1, z2, label=f'No.{i}_{task_int}_{env_int}', color=colors[i])
         plt.scatter(mean_np[0], mean_np[1], marker=markers[i], color=colors[i])
-    plt.xlabel('x')
-    plt.ylabel('y')
+    plt.xlabel('z1')
+    plt.ylabel('z2')
     plt.grid()
-    plt.legend(bbox_to_anchor=(1, 1), loc='upper right', borderaxespad=0)
-    plt.savefig(os.path.join(figdir, f'{title}.png'))
+    #plt.legend(bbox_to_anchor=(1, 1), loc='upper right', borderaxespad=0)
+    plt.legend(bbox_to_anchor=(1, 1), loc='upper left', borderaxespad=0)
+    plt.subplots_adjust(left=0.125, right=0.8, bottom=0.1, top=0.9)
+    plt.savefig(os.path.join(figdir, f'{title}_z1_2.png'))
+
+    fig = plt.figure()
+    for i, task_id in enumerate(task_id_list):
+        if val_flag_list is not None:
+            if val_flag_list[i] == 0:
+                continue
+        mean, std = model.embedding_net.get_mean_std(th.tensor(task_id[:task_id_dim]).float(), th.tensor(task_id[task_id_dim:]).float())
+        mean_np = mean.detach().numpy().flatten()
+        std_np = std.detach().numpy().flatten()
+        z1 = std_np[1] * np.cos(theta) + mean_np[1]
+        z2 = std_np[2] * np.sin(theta) + mean_np[2]
+
+        task_int = np.argmax(np.array(task_id[:task_id_dim]).reshape(1, -1), axis=1)[0]
+        env_int = np.argmax(np.array(task_id[task_id_dim:]).reshape(1, -1), axis=1)[0]
+
+        plt.plot(z1, z2, label=f'No.{i}_{task_int}_{env_int}', color=colors[i])
+        plt.scatter(mean_np[1], mean_np[2], marker=markers[i], color=colors[i])
+    plt.xlabel('z2')
+    plt.ylabel('z3')
+    plt.grid()
+    #plt.legend(bbox_to_anchor=(1, 1), loc='upper right', borderaxespad=0)
+    plt.legend(bbox_to_anchor=(1, 1), loc='upper left', borderaxespad=0)
+    plt.subplots_adjust(left=0.125, right=0.8, bottom=0.1, top=0.9)
+    plt.savefig(os.path.join(figdir, f'{title}_z2_3.png'))
+
+
+
+    if len(mean_np) == 3:
+        fig = plt.figure()
+        ax = Axes3D(fig)
+
+        for i, task_id in enumerate(task_id_list):
+            if val_flag_list is not None:
+                if val_flag_list[i] == 0:
+                    continue
+            mean, std = model.embedding_net.get_mean_std(th.tensor(task_id[:task_id_dim]).float(), th.tensor(task_id[task_id_dim:]).float())
+            mean_np = mean.detach().numpy().flatten()
+            std_np = std.detach().numpy().flatten()
+            z1 = std_np[0] * np.cos(theta) + mean_np[0]
+            z2 = std_np[1] * np.sin(theta) + mean_np[1]
+            z3 = std_np[2] * np.sin(theta) + mean_np[2]
+
+            task_int = np.argmax(np.array(task_id[:task_id_dim]).reshape(1, -1), axis=1)[0]
+            env_int = np.argmax(np.array(task_id[task_id_dim:]).reshape(1, -1), axis=1)[0]
+
+            ax.plot(z1, z2, z3, label=f'No.{i}_{task_int}_{env_int}', color=colors[i])
+            ax.scatter(mean_np[0], mean_np[1], mean_np[2], marker=markers[i], color=colors[i])
+
+        ax.set_xlabel('z1')
+        ax.set_ylabel('z2')
+        ax.set_zlabel('z3')
+        ax.set_xlim([-1, 1])
+        ax.set_ylim([-1, 1])
+        ax.set_zlim([-1, 1])
+        ax.legend()
+        #ax.subplots_adjust(left=0.125, right=0.8, bottom=0.1, top=0.9)
+        plt.savefig(os.path.join(figdir, f'{title}_3D.png'))
+
 
 # 設定ファイルの読み込み
 here = os.path.dirname(os.path.abspath(__file__))
-with open(os.path.join(here, "config.yml")) as f:
+config_fn = "config_obs_error.yml"
+with open(os.path.join(here, config_fn)) as f:
     config = yaml.safe_load(f.read())
 
 # 設定項目
-env_name = 'PointMass-v0'        # 学習環境(自作環境)
+env_name = 'PointMassObsError-v0'        # 学習環境(自作環境)
 
 # 学習の実行
 task_int_list = config["env"]["task_int_list"]
 max_task_int = config["env"]["max_task_int"]
-task_id_list = np.eye(max_task_int+1)[task_int_list]
+task_id_dim = max_task_int + 1
+env_int_list = config["env"]["env_int_list"]
+max_env_int = config["env"]["max_env_int"]
+env_id_dim = max_env_int + 1
+task_id_list = np.hstack([np.eye(task_id_dim)[task_int_list], np.eye(env_id_dim)[env_int_list]])
 
 base_savedir = '{}/result/{}/'.format(here, env_name)      # 結果の保存ディレクトリ
 savedir = '{}multi_task/'.format(base_savedir)
@@ -164,19 +236,20 @@ starttime = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y/%m/%d %H:%M:%
 # train
 if config["learn"]["flag"]:
     # 設定ファイルをコピー
-    shutil.copyfile(os.path.join(here, 'config.yml'), os.path.join(savedir, 'config.yml'))
+    shutil.copyfile(os.path.join(here, config_fn), os.path.join(savedir, config_fn))
 
     n_cpu = config["learn"]["n_cpu"]                   # 分散処理させる数(CPUのハイパースレッドの全数を上限が目安)
     # 環境の構築
     env_kwargs = config["env"]["env_kwargs"]
     env_init_random = config["learn"]["env_init_random"]
-    env_kwargs_list = [dict(task_id=task_id, init_random=env_init_random) for task_id in task_id_list]
+    env_kwargs_list = [dict(task_id=task_id, task_len=task_id_dim, init_random=env_init_random) for task_id in task_id_list]
     [env_k.update(env_kwargs) for env_k in env_kwargs_list]
     env = make_vec_env(PointMassEnv, n_envs=n_cpu, env_kwargs_list=env_kwargs_list)
     env.reset()
 
     # ネットワークの定義
-    embedding_dim = config["algorithm"]["embedding_dim"]
+    task_embedding_dim = config["algorithm"]["task_embedding_dim"]
+    env_embedding_dim = config["algorithm"]["env_embedding_dim"]
     policy_kwargs = config["algorithm"]["policy_kwargs"]
     inference_kwargs = config["algorithm"]["inference_kwargs"]
     embedding_kwargs = config["algorithm"]["embedding_kwargs"]
@@ -190,10 +263,14 @@ if config["learn"]["flag"]:
     verbose =  config["learn"]["verbose"]
 
     # モデルの作成
-    model = A2C(PolicyNet, env, verbose=verbose, tensorboard_log=logdir, policy_kwargs=policy_kwargs, 
-                inference_kwargs=inference_kwargs, embedding_kwargs=embedding_kwargs, 
-                optimizer_kwargs=optimizer_kwargs, task_id_list=task_id_list, embedding_dim=embedding_dim, 
-                device=device, n_steps=n_steps, loss_alphas=loss_alphas, max_grad_norm=0.3)
+    if config["learn"]["retrain"]:
+        model = A2C.load('{}embedding_model.zip'.format(savedir), env=env, device=device)
+    else:
+        model = A2C(PolicyNet, env, verbose=verbose, tensorboard_log=logdir, policy_kwargs=policy_kwargs, 
+                    inference_kwargs=inference_kwargs, embedding_kwargs=embedding_kwargs, 
+                    optimizer_kwargs=optimizer_kwargs, task_id_list=task_id_list, task_id_dim=task_id_dim, env_id_dim=env_id_dim, 
+                    task_embedding_dim=task_embedding_dim, env_embedding_dim=env_embedding_dim, device=device, n_steps=n_steps, 
+                    loss_alphas=loss_alphas, max_grad_norm=0.3)
     #model = A2C(MlpPolicy, env, verbose=1, tensorboard_log=logdir, policy_kwargs=policy_kwargs, 
     #            device=device, n_steps=10)
 
@@ -206,7 +283,7 @@ if config["learn"]["flag"]:
     #    os.makedirs(val_savedir, exist_ok=True)
     #    action_plot(model, task_id, 'unlearned', figdir=val_savedir)
     
-    model.learn(total_timesteps=total_timesteps)
+    model.learn(total_timesteps=total_timesteps, savedir=savedir)
     plot_history(model.policy_loss_history, title='policy_loss', xlabel='episode', ylabel='loss', figdir=savedir)
     plot_history(model.inference_loss_history, title='inference_loss', xlabel='episode', ylabel='loss', figdir=savedir)
     plot_history(model.embedding_loss_history, title='embedding_loss', xlabel='episode', ylabel='loss', figdir=savedir)
@@ -229,6 +306,7 @@ if config["learn"]["flag"]:
 
     model.save('{}embedding_model'.format(savedir))
     env.close()
+    plt.cla()
 endtime = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y/%m/%d %H:%M:%S")
 
 
@@ -238,19 +316,25 @@ if config["validation"]["flag"]:
     device = config["validation"]["device"]
     video = config["validation"]["flag"]
     n_val = config["validation"]["n_val"]
-    timestep =  config["validation"]["timestep"]
+    timestep = config["validation"]["timestep"]
     env_kwargs = config["env"]["env_kwargs"]
     env_init_random = config["learn"]["env_init_random"]
 
-    model = A2C.load('{}embedding_model.zip'.format(savedir), device=device)
-    plot_embedding_space(model, task_id_list, 'embedding_space_leaned', figdir=savedir)
+    val_flag_list = config["validation"]["val_flag_list"]
 
-    for task_id in task_id_list:
-        task_int = np.argmax(np.array(task_id).reshape(1, -1), axis=1)[0]
-        val_savedir = os.path.join(savedir, f'{task_int}')
+    model = A2C.load('{}embedding_model.zip'.format(savedir), device=device)
+    plot_embedding_space(model, task_id_list, 'embedding_space_leaned', figdir=savedir, val_flag_list=val_flag_list)
+
+    for task_id, val_flag in zip(task_id_list, val_flag_list):
+        if val_flag == 0:
+            continue
+        task_int = np.argmax(np.array(task_id[:task_id_dim]).reshape(1, -1), axis=1)[0]
+        env_int = np.argmax(np.array(task_id[task_id_dim:]).reshape(1, -1), axis=1)[0]
+
+        val_savedir = os.path.join(savedir, f'{task_int}_{env_int}')
         os.makedirs(val_savedir, exist_ok=True)
 
-        env_kwargs_list = [dict(task_id=task_id, init_random=env_init_random)]
+        env_kwargs_list = [dict(task_id=task_id, task_len=task_id_dim, init_random=env_init_random)]
         [env_k.update(env_kwargs) for env_k in env_kwargs_list]
         env0 = make_vec_env(PointMassEnv, n_envs=1, env_kwargs_list=env_kwargs_list).envs[0]
 
@@ -258,13 +342,16 @@ if config["validation"]["flag"]:
         if video: wrapping_flags[-1] = True
 
         sum_r_list = []
-        pos_list = []
+        real_pos_list = []
+        obs_pos_list = []
 
         # zはタスク一回ごとに一度のみ計算
-        z, _, _ = model.embedding_net.predict(th.tensor(task_id).float())
+        z, _, _ = model.embedding_net.predict(th.tensor(task_id[:task_id_dim]).float(), th.tensor(task_id[task_id_dim:]).float())
+        pd.DataFrame(z.detach().numpy()).to_csv(os.path.join(val_savedir, 'z.csv'))
 
         for i, wrapping in enumerate(wrapping_flags):
             print('--- validation {} ---'.format(i))
+            print('z:', z)
 
             if wrapping:
                 from gym import wrappers
@@ -274,7 +361,8 @@ if config["validation"]["flag"]:
             
             obs = env0.reset()
             info = env0.get_info()
-            pos_list.append(info['position'].tolist())
+            real_pos_list.append(info['real_position'].tolist())
+            obs_pos_list.append(info['obs_position'].tolist())
 
             done = False
             ac_obs_list = []
@@ -296,7 +384,8 @@ if config["validation"]["flag"]:
                 ac_obs.extend(obs_add_z.tolist())
                 ac_obs_list.append(ac_obs)
                 sum_r += rewards
-                pos_list.append(info['position'].tolist())
+                real_pos_list.append(info['real_position'].tolist())
+                obs_pos_list.append(info['obs_position'].tolist())
 
                 print(step, action, obs_add_z)
 
@@ -308,20 +397,23 @@ if config["validation"]["flag"]:
         
         print(sum_r_list)
 
-        pos_np = np.array(pos_list)
-        fig = plt.figure()
-        plt.plot(pos_np[:, 0], pos_np[:, 1])
-        plt.scatter(pos_list[0][0], pos_list[0][1], marker='x', color='g')
-        plt.scatter(env0.goal[0], env0.goal[1], marker='o', color='r')
-        plt.grid()
-        plt.xlim([-10, 10])
-        plt.ylim([-10, 10])
-        plt.savefig(os.path.join(val_savedir, 'trajectory.png'))
+        for pos_list, l in zip([real_pos_list, obs_pos_list], ['real', 'obs']):
+            pos_np = np.array(pos_list)
+            fig = plt.figure()
+            plt.plot(pos_np[:, 0], pos_np[:, 1], marker='.')
+            plt.scatter(pos_list[0][0], pos_list[0][1], marker='x', color='g')
+            plt.scatter(env0.goal[0], env0.goal[1], marker='o', color='r')
+            plt.grid()
+            plt.xlim([-5, 5])
+            plt.ylim([-5, 5])
+            plt.savefig(os.path.join(val_savedir, f'trajectory_{l}.png'))
 
         env0.close()
         #ori_env.close()
 
         action_plot(model, task_id, 'learned', figdir=val_savedir)
+
+        plt.cla()
 
     print(starttime)
     print(endtime)

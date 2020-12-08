@@ -1,20 +1,24 @@
 env:
-  env_kwargs: {"goal_range": 0.5, "reward_range": 1, "terminal_timestep": 28}
-  task_int_list: [0, 1, 2, 3, 4, 5]
-  max_task_int: 7
+  env_kwargs: {"goal_range": 0.5, "reward_range": 3.5, "terminal_timestep": 28}
+  task_int_list: [0, 0, 0, 0]
+  max_task_int: 3
+  env_int_list: [0, 1, 2, 3]
+  max_env_int: 3
 algorithm:
   policy_kwargs: {"net_arch": [50, 50]}
   inference_kwargs: {"n_obs_history": 4, "net_arch": [50, 50]}
   embedding_kwargs: {"net_arch": [50, 50]}
   optimizer_kwargs: {"lr": 0.0007, "alpha": 0.99, "eps": 0.00001, "weight_decay": 0.001}
-  embedding_dim: 2
+  task_embedding_dim: 1
+  env_embedding_dim: 2
   loss_alphas: [0.5, 0.5, 0.5]
 learn:
   flag: False
+  retrain: True
   env_init_random: False
-  n_cpu: 48
-  n_steps: 30   # 何ステップ分でNNの学習を行うか
-  total_timesteps: 3000000    # 学習タイムステップ
+  n_cpu: 64
+  n_steps: 90   # 何ステップ分でNNの学習を行うか
+  total_timesteps: 2000000    # 学習タイムステップ
   device: "cpu"
   verbose: 1
 validation:
@@ -24,3 +28,4 @@ validation:
   n_val: 1
   timestep: 50
   device: "cpu"
+  val_flag_list: [1, 1, 1, 1, 1, 0, 1, 0]
